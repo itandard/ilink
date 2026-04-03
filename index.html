@@ -3,18 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPS 실시간 관제 시스템</title>
+    <title>GPS 실시간 통합 관제 시스템</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
+    <!-- 카카오 지도 API - 최신 SDK 로드 -->
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=173d252d4d96821fe2235b962120637b&libraries=services&autoload=false"></script>
+
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
-        body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; overflow: hidden; }
-        /* 공식 가이드: 지도를 담을 영역의 크기 지정 필수 */
-        #map { width: 100%; height: 100%; background-color: #f1f5f9; }
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;900&display=swap');
+        body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; overflow: hidden; }
+        #map { width: 100%; height: 100%; background-color: #f8fafc; }
+        .custom-overlay {
+            position: relative; bottom: 50px; border-radius: 12px;
+            background: white; border: 1px solid #e2e8f0; padding: 8px 12px;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+        }
+        .custom-overlay::after {
+            content: ''; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
+            width: 12px; height: 12px; background: white; border-right: 1px solid #e2e8f0;
+            border-bottom: 1px solid #e2e8f0; transform: translateX(-50%) rotate(45deg);
+        }
     </style>
 </head>
 <body class="bg-slate-50">
@@ -28,183 +40,159 @@
             return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
         };
 
-        // [체크] 발급받은 JavaScript 키를 여기에 넣으세요
-        const KAKAO_APP_KEY = "173d252d4d96821fe2235b962120637b"; 
-
         const App = () => {
-            const [pos, setPos] = useState({ lat: 35.190360, lng: 128.815600 });
-            const [isLoaded, setIsLoaded] = useState(false);
-            const [error, setError] = useState(null);
-            
-            const mapInstance = useRef(null);
-            const markerInstance = useRef(null);
+            // 학생/장치 데이터 (Mock)
+            const [devices, setDevices] = useState([
+                { id: 1, name: "김민수 학생", lat: 35.190360, lng: 128.815600, status: "moving", battery: 85, lastUpdate: "방금 전" },
+                { id: 2, name: "이서연 학생", lat: 35.192360, lng: 128.818600, status: "idle", battery: 42, lastUpdate: "3분 전" },
+                { id: 3, name: "박지성 학생", lat: 35.188360, lng: 128.812600, status: "moving", battery: 98, lastUpdate: "방금 전" }
+            ]);
+
+            const [selectedId, setSelectedId] = useState(1);
+            const [isMapReady, setIsMapReady] = useState(false);
+            const mapRef = useRef(null);
+            const markersRef = useRef({});
 
             useEffect(() => {
-                // 1. 가이드 Step 2: API를 로딩하는 스크립트 태그 동적 생성
-                const script = document.createElement('script');
-                script.type = 'text/javascript';
-                // autoload=false를 사용하여 로드 완료 시점을 명확히 제어
-                script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_APP_KEY}&autoload=false&libraries=services`;
-                
-                script.onload = () => {
-                    // 2. 가이드 Step 3: 지도를 띄우는 코드 작성
-                    window.kakao.maps.load(() => {
-                        try {
-                            const container = document.getElementById('map'); // 지도를 담을 영역의 DOM 레퍼런스
-                            
-                            const options = { // 지도를 생성할 때 필요한 기본 옵션
-                                center: new window.kakao.maps.LatLng(pos.lat, pos.lng), // 지도의 중심좌표
-                                level: 3 // 지도의 레벨(확대, 축소 정도)
-                            };
+                if (!window.kakao) return;
 
-                            // 지도 생성 및 객체 리턴
-                            const map = new window.kakao.maps.Map(container, options);
-                            mapInstance.current = map;
+                window.kakao.maps.load(() => {
+                    const container = document.getElementById('map');
+                    const options = {
+                        center: new window.kakao.maps.LatLng(devices[0].lat, devices[0].lng),
+                        level: 4
+                    };
 
-                            // 마커 추가
-                            const marker = new window.kakao.maps.Marker({
-                                position: new window.kakao.maps.LatLng(pos.lat, pos.lng)
-                            });
-                            marker.setMap(map);
-                            markerInstance.current = marker;
+                    const map = new window.kakao.maps.Map(container, options);
+                    mapRef.current = map;
 
-                            setIsLoaded(true);
-                            console.log("Kakao Map Successfully Initialized");
-                        } catch (err) {
-                            console.error("Map Init Error:", err);
-                            setError("지도 초기화 중 에러가 발생했습니다.");
-                        }
+                    // 초기 마커 생성
+                    devices.forEach(device => {
+                        const marker = new window.kakao.maps.Marker({
+                            position: new window.kakao.maps.LatLng(device.lat, device.lng),
+                            map: map
+                        });
+                        markersRef.current[device.id] = marker;
+
+                        // 클릭 이벤트
+                        window.kakao.maps.event.addListener(marker, 'click', () => {
+                            setSelectedId(device.id);
+                        });
                     });
-                };
 
-                script.onerror = () => {
-                    setError("카카오 지도 SDK 로드에 실패했습니다. 키와 도메인 설정을 확인하세요.");
-                };
-
-                document.head.appendChild(script);
-                return () => {
-                    if (document.head.contains(script)) {
-                        document.head.removeChild(script);
-                    }
-                };
+                    setIsMapReady(true);
+                });
             }, []);
 
-            const updateLocation = () => {
-                if (mapInstance.current && markerInstance.current) {
-                    const newLatLng = new window.kakao.maps.LatLng(pos.lat, pos.lng);
-                    mapInstance.current.panTo(newLatLng);
-                    markerInstance.current.setPosition(newLatLng);
+            // 선택된 학생이 변경될 때 지도를 이동시킴
+            const selectDevice = (id) => {
+                setSelectedId(id);
+                const device = devices.find(d => d.id === id);
+                if (device && mapRef.current) {
+                    const moveLatLng = new window.kakao.maps.LatLng(device.lat, device.lng);
+                    mapRef.current.panTo(moveLatLng);
                 }
             };
 
             return (
-                <div className="flex flex-col h-screen bg-slate-100">
+                <div className="flex flex-col h-screen overflow-hidden bg-white">
                     {/* Header */}
-                    <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 z-50 shadow-sm">
+                    <header className="h-16 border-b border-slate-200 flex items-center justify-between px-6 bg-white shrink-0 z-50">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
-                                <Icon name="map" size={20} />
+                            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
+                                <Icon name="shield-check" size={22} />
                             </div>
                             <div>
-                                <h1 className="text-sm font-black text-slate-800 uppercase tracking-tight">GPS Tracking System</h1>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Real-time Monitoring</p>
+                                <h1 className="font-bold text-slate-900 text-sm tracking-tight uppercase">Smart Student Safety</h1>
+                                <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase">Real-time Location Control</p>
                             </div>
                         </div>
-                        
                         <div className="flex items-center gap-4">
-                            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider transition-colors ${isLoaded ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${isLoaded ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-rose-500 animate-pulse'}`}></span>
-                                {isLoaded ? 'SYSTEM ONLINE' : 'SYSTEM OFFLINE'}
+                            <div className="hidden md:flex flex-col items-end mr-2">
+                                <span className="text-xs font-bold text-slate-700">홍민호 선생님</span>
+                                <span className="text-[10px] text-indigo-500 font-medium tracking-tight text-right">석리초등학교 1학년 1반</span>
+                            </div>
+                            <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400">
+                                <Icon name="user" />
                             </div>
                         </div>
                     </header>
 
-                    {/* Main Content */}
-                    <div className="flex-1 flex overflow-hidden relative">
-                        {/* Map View Area */}
-                        <main className="flex-1 relative bg-slate-200">
+                    <div className="flex-1 flex overflow-hidden">
+                        {/* Sidebar: List */}
+                        <aside className="w-80 bg-white border-r border-slate-200 flex flex-col z-40">
+                            <div className="p-5 border-b border-slate-100">
+                                <div className="relative">
+                                    <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                    <input type="text" placeholder="학생 검색..." className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-xs outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                                </div>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto">
+                                {devices.map(device => (
+                                    <button 
+                                        key={device.id}
+                                        onClick={() => selectDevice(device.id)}
+                                        className={`w-full p-5 flex items-center gap-4 border-b border-slate-50 transition-all ${selectedId === device.id ? 'bg-indigo-50/50 border-l-4 border-l-indigo-600' : 'hover:bg-slate-50'}`}
+                                    >
+                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg ${selectedId === device.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-400'}`}>
+                                            {device.name[0]}
+                                        </div>
+                                        <div className="flex-1 text-left">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className={`font-bold text-xs ${selectedId === device.id ? 'text-indigo-900' : 'text-slate-700'}`}>{device.name}</span>
+                                                <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${device.status === 'moving' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                                                    {device.status}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium">
+                                                <span className="flex items-center gap-1"><Icon name="battery" size={10} /> {device.battery}%</span>
+                                                <span>•</span>
+                                                <span>{device.lastUpdate}</span>
+                                            </div>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="p-4 mt-auto">
+                                <div className="bg-slate-900 rounded-2xl p-4 text-white shadow-xl">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Active Alerts</span>
+                                        <span className="w-2 h-2 bg-rose-500 rounded-full animate-ping"></span>
+                                    </div>
+                                    <p className="text-xs font-bold mb-1 leading-tight">모든 학생이 안전 구역 내에 위치하고 있습니다.</p>
+                                    <p className="text-[10px] text-slate-400">마지막 점검: 오늘 오후 3:40</p>
+                                </div>
+                            </div>
+                        </aside>
+
+                        {/* Main Map View */}
+                        <main className="flex-1 relative">
                             <div id="map"></div>
                             
-                            {/* Error Overlay */}
-                            {error && (
-                                <div className="absolute inset-0 z-[100] bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-8">
-                                    <div className="max-w-md w-full bg-white rounded-3xl p-8 text-center shadow-2xl border border-white/20">
-                                        <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6">
-                                            <Icon name="alert-triangle" size={32} />
-                                        </div>
-                                        <h2 className="text-xl font-bold text-slate-900 mb-2">연결 실패 (Domain Error)</h2>
-                                        <p className="text-sm text-slate-500 mb-8 leading-relaxed">
-                                            카카오 개발자 콘솔에 등록된 도메인과 현재 접속 주소가 일치하지 않습니다. 아래 주소를 정확히 복사하여 등록해 주세요.
-                                        </p>
-                                        <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl mb-8 text-left group cursor-pointer active:bg-slate-100 transition-colors">
-                                            <span className="text-[10px] font-black text-slate-400 uppercase block mb-1">등록해야 할 도메인</span>
-                                            <code className="text-xs font-mono font-bold text-blue-600 break-all select-all">{window.location.origin}</code>
-                                        </div>
-                                        <button onClick={() => window.location.reload()} className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all active:scale-[0.98] shadow-xl">
-                                            설정 완료 후 다시 시도
-                                        </button>
-                                    </div>
+                            {!isMapReady && (
+                                <div className="absolute inset-0 z-50 bg-slate-50 flex flex-col items-center justify-center gap-4">
+                                    <Icon name="loader" size={32} className="text-indigo-600 animate-spin" />
+                                    <span className="text-sm font-bold text-slate-500">관제 시스템 데이터를 로드 중입니다...</span>
                                 </div>
                             )}
 
-                            {/* Floating Map Controls */}
-                            <div className="absolute top-6 right-6 flex flex-col gap-2 z-40">
-                                <button className="w-12 h-12 bg-white rounded-xl shadow-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:text-blue-600 transition-colors active:scale-90" title="확대"><Icon name="plus" /></button>
-                                <button className="w-12 h-12 bg-white rounded-xl shadow-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:text-blue-600 transition-colors active:scale-90" title="축소"><Icon name="minus" /></button>
+                            {/* Floating Stats */}
+                            <div className="absolute top-6 left-6 flex items-center gap-2 z-30">
+                                <div className="bg-white/90 backdrop-blur shadow-xl border border-slate-200 rounded-2xl p-4 flex items-center gap-4">
+                                    <div className="flex flex-col">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Total Devices</span>
+                                        <span className="text-xl font-black text-slate-900">12 / 12</span>
+                                    </div>
+                                    <div className="w-px h-8 bg-slate-200"></div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Safety Status</span>
+                                        <span className="text-xl font-black text-emerald-600 tracking-tighter">SECURED</span>
+                                    </div>
+                                </div>
                             </div>
                         </main>
-
-                        {/* Sidebar Control Panel */}
-                        <aside className="w-80 bg-white border-l border-slate-200 p-8 hidden lg:flex flex-col gap-8 shrink-0 overflow-y-auto">
-                            <section>
-                                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6">Device Coordinates</h3>
-                                <div className="space-y-4">
-                                    <div className="space-y-1.5">
-                                        <label className="text-[10px] font-bold text-slate-500 ml-1 uppercase">Latitude</label>
-                                        <div className="relative">
-                                            <Icon name="map-pin" size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                                            <input 
-                                                type="number" 
-                                                value={pos.lat} 
-                                                onChange={(e) => setPos({...pos, lat: parseFloat(e.target.value)})}
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 pr-4 text-sm font-mono focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label className="text-[10px] font-bold text-slate-500 ml-1 uppercase">Longitude</label>
-                                        <div className="relative">
-                                            <Icon name="map-pin" size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                                            <input 
-                                                type="number" 
-                                                value={pos.lng} 
-                                                onChange={(e) => setPos({...pos, lng: parseFloat(e.target.value)})}
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 pr-4 text-sm font-mono focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                                            />
-                                        </div>
-                                    </div>
-                                    <button 
-                                        onClick={updateLocation}
-                                        className="w-full bg-blue-600 text-white font-bold py-4 rounded-2xl hover:bg-blue-700 active:scale-[0.97] transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2 mt-2"
-                                    >
-                                        <Icon name="send" size={16} />
-                                        <span>위치 전송</span>
-                                    </button>
-                                </div>
-                            </section>
-
-                            <section className="mt-auto">
-                                <div className="p-5 bg-indigo-50 rounded-2xl border border-indigo-100">
-                                    <div className="flex items-center gap-2 mb-3 text-indigo-700 font-bold text-xs uppercase">
-                                        <Icon name="info" size={14} />
-                                        <span>Troubleshooting</span>
-                                    </div>
-                                    <p className="text-[11px] text-indigo-600/80 leading-relaxed font-medium">
-                                        지도가 로드되지 않을 경우, 카카오 콘솔의 <b>내 애플리케이션 {">"} 앱 설정 {">"} 플랫폼</b> 탭에서 현재 사이트 주소가 <b>Web 사이트 도메인</b>에 정확히 추가되어 있는지 확인하세요.
-                                    </p>
-                                </div>
-                            </section>
-                        </aside>
                     </div>
                 </div>
             );
