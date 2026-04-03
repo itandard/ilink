@@ -10,22 +10,25 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
-    <!-- 카카오 지도 API - 최신 SDK 로드 -->
+    <!-- 카카오 지도 API -->
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=173d252d4d96821fe2235b962120637b&libraries=services&autoload=false"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;900&display=swap');
         body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; overflow: hidden; }
         #map { width: 100%; height: 100%; background-color: #f8fafc; }
-        .custom-overlay {
-            position: relative; bottom: 50px; border-radius: 12px;
-            background: white; border: 1px solid #e2e8f0; padding: 8px 12px;
-            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-        }
-        .custom-overlay::after {
-            content: ''; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
-            width: 12px; height: 12px; background: white; border-right: 1px solid #e2e8f0;
-            border-bottom: 1px solid #e2e8f0; transform: translateX(-50%) rotate(45deg);
+        
+        /* 경로 위 시간 라벨 스타일 */
+        .path-label {
+            background: #1e293b;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            white-space: nowrap;
         }
     </style>
 </head>
@@ -41,17 +44,20 @@
         };
 
         const App = () => {
-            // 학생/장치 데이터 상태 관리 (실시간 위치 시뮬레이션을 위해 state로 관리)
+            // 학생 데이터 및 경로(path) 상태 관리
             const [devices, setDevices] = useState([
-                { id: 1, name: "김민수 학생", lat: 35.190360, lng: 128.815600, status: "moving", battery: 85, lastUpdate: "방금 전" },
-                { id: 2, name: "이서연 학생", lat: 35.192360, lng: 128.818600, status: "idle", battery: 42, lastUpdate: "3분 전" },
-                { id: 3, name: "박지성 학생", lat: 35.188360, lng: 128.812600, status: "moving", battery: 98, lastUpdate: "방금 전" }
+                { id: 1, name: "김민수 학생", lat: 35.190360, lng: 128.815600, status: "moving", battery: 85, path: [] },
+                { id: 2, name: "이서연 학생", lat: 35.192360, lng: 128.818600, status: "idle", battery: 42, path: [] },
+                { id: 3, name: "박지성 학생", lat: 35.188360, lng: 128.812600, status: "moving", battery: 98, path: [] }
             ]);
 
             const [selectedId, setSelectedId] = useState(1);
             const [isMapReady, setIsMapReady] = useState(false);
+            
             const mapRef = useRef(null);
             const markersRef = useRef({});
+            const polylinesRef = useRef({});
+            const overlaysRef = useRef({}); // 시간 표시용 오버레이 관리
 
             // 지도 초기화
             useEffect(() => {
@@ -67,15 +73,36 @@
                     const map = new window.kakao.maps.Map(container, options);
                     mapRef.current = map;
 
-                    // 초기 마커 생성
                     devices.forEach(device => {
+                        const position = new window.kakao.maps.LatLng(device.lat, device.lng);
+                        
+                        // 1. 마커 생성
                         const marker = new window.kakao.maps.Marker({
-                            position: new window.kakao.maps.LatLng(device.lat, device.lng),
+                            position: position,
                             map: map
                         });
                         markersRef.current[device.id] = marker;
 
-                        // 마커 클릭 이벤트
+                        // 2. 경로 선(Polyline) 생성
+                        const polyline = new window.kakao.maps.Polyline({
+                            map: map,
+                            path: [position],
+                            strokeWeight: 4,
+                            strokeColor: device.id === 1 ? '#4f46e5' : (device.id === 2 ? '#059669' : '#d97706'),
+                            strokeOpacity: 0.7,
+                            strokeStyle: 'solid'
+                        });
+                        polylinesRef.current[device.id] = polyline;
+
+                        // 3. 시간 라벨용 커스텀 오버레이 (초기엔 숨김)
+                        const overlay = new window.kakao.maps.CustomOverlay({
+                            position: position,
+                            content: `<div class="path-label">방금 전</div>`,
+                            yAnchor: 2.2
+                        });
+                        overlay.setMap(map);
+                        overlaysRef.current[device.id] = overlay;
+
                         window.kakao.maps.event.addListener(marker, 'click', () => {
                             setSelectedId(device.id);
                         });
@@ -85,35 +112,52 @@
                 });
             }, []);
 
-            // [실시간 이동 시뮬레이션 로직]
+            // [실시간 이동 및 경로 업데이트 시뮬레이션]
             useEffect(() => {
                 if (!isMapReady) return;
 
                 const interval = setInterval(() => {
                     setDevices(prevDevices => 
                         prevDevices.map(device => {
-                            // idle 상태는 움직이지 않고, moving 상태만 아주 조금씩 이동
                             if (device.status === "moving") {
-                                const newLat = device.lat + (Math.random() - 0.5) * 0.0001;
-                                const newLng = device.lng + (Math.random() - 0.5) * 0.0001;
+                                // 무작위 이동 좌표 생성
+                                const newLat = device.lat + (Math.random() - 0.5) * 0.0002;
+                                const newLng = device.lng + (Math.random() - 0.5) * 0.0002;
+                                const newPos = new window.kakao.maps.LatLng(newLat, newLng);
                                 
-                                // 지도 마커 위치 업데이트 (마커 객체에 직접 반영)
+                                // 지도 요소 실시간 업데이트
                                 if (markersRef.current[device.id]) {
-                                    const newPos = new window.kakao.maps.LatLng(newLat, newLng);
                                     markersRef.current[device.id].setPosition(newPos);
                                 }
 
-                                return { ...device, lat: newLat, lng: newLng, lastUpdate: "방금 전" };
+                                if (polylinesRef.current[device.id]) {
+                                    const currentPath = polylinesRef.current[device.id].getPath();
+                                    currentPath.push(newPos);
+                                    polylinesRef.current[device.id].setPath(currentPath);
+                                    
+                                    // 경로가 일정 이상일 때 중간 지점에 라벨 표시
+                                    if (currentPath.length > 2 && currentPath.length % 5 === 0) {
+                                        const midIdx = Math.floor(currentPath.length / 2);
+                                        overlaysRef.current[device.id].setPosition(currentPath[midIdx]);
+                                        overlaysRef.current[device.id].setContent(`<div class="path-label">${currentPath.length}초 전 이동 경로</div>`);
+                                    }
+                                }
+
+                                return { 
+                                    ...device, 
+                                    lat: newLat, 
+                                    lng: newLng, 
+                                    path: [...device.path, { lat: newLat, lng: newLng }] 
+                                };
                             }
                             return device;
                         })
                     );
-                }, 3000); // 3초마다 위치 갱신
+                }, 3000);
 
                 return () => clearInterval(interval);
             }, [isMapReady]);
 
-            // 선택된 학생이 변경될 때 지도를 이동시킴
             const selectDevice = (id) => {
                 setSelectedId(id);
                 const device = devices.find(d => d.id === id);
@@ -129,31 +173,31 @@
                     <header className="h-16 border-b border-slate-200 flex items-center justify-between px-6 bg-white shrink-0 z-50">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
-                                <Icon name="shield-check" size={22} />
+                                <Icon name="route" size={22} />
                             </div>
                             <div>
-                                <h1 className="font-bold text-slate-900 text-sm tracking-tight uppercase">Smart Student Safety</h1>
-                                <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase">Real-time Location Control</p>
+                                <h1 className="font-bold text-slate-900 text-sm tracking-tight uppercase">Smart Safety Tracker</h1>
+                                <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase">Path Visualization Active</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-4">
                             <div className="hidden md:flex flex-col items-end mr-2">
                                 <span className="text-xs font-bold text-slate-700">홍민호 선생님</span>
-                                <span className="text-[10px] text-indigo-500 font-medium tracking-tight text-right">석리초등학교 1학년 1반</span>
+                                <span className="text-[10px] text-indigo-500 font-medium tracking-tight">석리초등학교 1-1</span>
                             </div>
-                            <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400">
-                                <Icon name="user" />
+                            <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
+                                <Icon name="user" className="text-slate-400" />
                             </div>
                         </div>
                     </header>
 
                     <div className="flex-1 flex overflow-hidden">
-                        {/* Sidebar: List */}
+                        {/* Sidebar */}
                         <aside className="w-80 bg-white border-r border-slate-200 flex flex-col z-40">
                             <div className="p-5 border-b border-slate-100">
-                                <div className="relative">
-                                    <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                    <input type="text" placeholder="학생 검색..." className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-xs outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all" />
+                                <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+                                    <p className="text-[11px] font-bold text-indigo-600 mb-1">실시간 경로 추적 중</p>
+                                    <p className="text-[10px] text-slate-500 leading-relaxed">이동 중인 학생의 궤적이 지도에 표시됩니다.</p>
                                 </div>
                             </div>
 
@@ -170,54 +214,34 @@
                                         <div className="flex-1 text-left">
                                             <div className="flex items-center justify-between mb-1">
                                                 <span className={`font-bold text-xs ${selectedId === device.id ? 'text-indigo-900' : 'text-slate-700'}`}>{device.name}</span>
-                                                <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${device.status === 'moving' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
-                                                    {device.status === 'moving' ? '이동 중' : '정지'}
+                                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${device.status === 'moving' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                                                    {device.status === 'moving' ? 'MOVING' : 'IDLE'}
                                                 </span>
                                             </div>
-                                            <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium">
-                                                <span className="flex items-center gap-1"><Icon name="battery" size={10} /> {device.battery}%</span>
-                                                <span>•</span>
-                                                <span className="tabular-nums font-mono">{device.lat.toFixed(4)}, {device.lng.toFixed(4)}</span>
+                                            <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                                                <span className="flex items-center gap-1 font-mono">{device.lat.toFixed(5)} , {device.lng.toFixed(5)}</span>
                                             </div>
                                         </div>
                                     </button>
                                 ))}
                             </div>
-
-                            <div className="p-4 mt-auto">
-                                <div className="bg-slate-900 rounded-2xl p-4 text-white shadow-xl">
-                                    <div className="flex items-center justify-between mb-3">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Active Alerts</span>
-                                        <span className="w-2 h-2 bg-rose-500 rounded-full animate-ping"></span>
-                                    </div>
-                                    <p className="text-xs font-bold mb-1 leading-tight">모든 학생이 안전 구역 내에 위치하고 있습니다.</p>
-                                    <p className="text-[10px] text-slate-400">마지막 점검: {new Date().toLocaleTimeString()}</p>
-                                </div>
-                            </div>
                         </aside>
 
-                        {/* Main Map View */}
+                        {/* Main Map */}
                         <main className="flex-1 relative">
                             <div id="map"></div>
                             
-                            {!isMapReady && (
-                                <div className="absolute inset-0 z-50 bg-slate-50 flex flex-col items-center justify-center gap-4">
-                                    <Icon name="loader" size={32} className="text-indigo-600 animate-spin" />
-                                    <span className="text-sm font-bold text-slate-500">관제 시스템 데이터를 로드 중입니다...</span>
-                                </div>
-                            )}
-
-                            {/* Floating Stats */}
-                            <div className="absolute top-6 left-6 flex items-center gap-2 z-30">
+                            {/* Overlay Stats */}
+                            <div className="absolute top-6 left-6 z-30 flex flex-col gap-3">
                                 <div className="bg-white/90 backdrop-blur shadow-xl border border-slate-200 rounded-2xl p-4 flex items-center gap-4">
                                     <div className="flex flex-col">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Total Devices</span>
-                                        <span className="text-xl font-black text-slate-900">3 / 3</span>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Tracking Path</span>
+                                        <span className="text-xl font-black text-slate-900 uppercase">Enabled</span>
                                     </div>
                                     <div className="w-px h-8 bg-slate-200"></div>
                                     <div className="flex flex-col">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Safety Status</span>
-                                        <span className="text-xl font-black text-emerald-600 tracking-tighter">SECURED</span>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Update Rate</span>
+                                        <span className="text-xl font-black text-indigo-600 tracking-tighter">3.0s</span>
                                     </div>
                                 </div>
                             </div>
