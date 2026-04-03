@@ -41,7 +41,7 @@
         };
 
         const App = () => {
-            // 학생/장치 데이터 (Mock)
+            // 학생/장치 데이터 상태 관리 (실시간 위치 시뮬레이션을 위해 state로 관리)
             const [devices, setDevices] = useState([
                 { id: 1, name: "김민수 학생", lat: 35.190360, lng: 128.815600, status: "moving", battery: 85, lastUpdate: "방금 전" },
                 { id: 2, name: "이서연 학생", lat: 35.192360, lng: 128.818600, status: "idle", battery: 42, lastUpdate: "3분 전" },
@@ -53,6 +53,7 @@
             const mapRef = useRef(null);
             const markersRef = useRef({});
 
+            // 지도 초기화
             useEffect(() => {
                 if (!window.kakao) return;
 
@@ -74,7 +75,7 @@
                         });
                         markersRef.current[device.id] = marker;
 
-                        // 클릭 이벤트
+                        // 마커 클릭 이벤트
                         window.kakao.maps.event.addListener(marker, 'click', () => {
                             setSelectedId(device.id);
                         });
@@ -83,6 +84,34 @@
                     setIsMapReady(true);
                 });
             }, []);
+
+            // [실시간 이동 시뮬레이션 로직]
+            useEffect(() => {
+                if (!isMapReady) return;
+
+                const interval = setInterval(() => {
+                    setDevices(prevDevices => 
+                        prevDevices.map(device => {
+                            // idle 상태는 움직이지 않고, moving 상태만 아주 조금씩 이동
+                            if (device.status === "moving") {
+                                const newLat = device.lat + (Math.random() - 0.5) * 0.0001;
+                                const newLng = device.lng + (Math.random() - 0.5) * 0.0001;
+                                
+                                // 지도 마커 위치 업데이트 (마커 객체에 직접 반영)
+                                if (markersRef.current[device.id]) {
+                                    const newPos = new window.kakao.maps.LatLng(newLat, newLng);
+                                    markersRef.current[device.id].setPosition(newPos);
+                                }
+
+                                return { ...device, lat: newLat, lng: newLng, lastUpdate: "방금 전" };
+                            }
+                            return device;
+                        })
+                    );
+                }, 3000); // 3초마다 위치 갱신
+
+                return () => clearInterval(interval);
+            }, [isMapReady]);
 
             // 선택된 학생이 변경될 때 지도를 이동시킴
             const selectDevice = (id) => {
@@ -135,20 +164,20 @@
                                         onClick={() => selectDevice(device.id)}
                                         className={`w-full p-5 flex items-center gap-4 border-b border-slate-50 transition-all ${selectedId === device.id ? 'bg-indigo-50/50 border-l-4 border-l-indigo-600' : 'hover:bg-slate-50'}`}
                                     >
-                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg ${selectedId === device.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-400'}`}>
+                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold ${selectedId === device.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-400'}`}>
                                             {device.name[0]}
                                         </div>
                                         <div className="flex-1 text-left">
                                             <div className="flex items-center justify-between mb-1">
                                                 <span className={`font-bold text-xs ${selectedId === device.id ? 'text-indigo-900' : 'text-slate-700'}`}>{device.name}</span>
                                                 <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${device.status === 'moving' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
-                                                    {device.status}
+                                                    {device.status === 'moving' ? '이동 중' : '정지'}
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium">
                                                 <span className="flex items-center gap-1"><Icon name="battery" size={10} /> {device.battery}%</span>
                                                 <span>•</span>
-                                                <span>{device.lastUpdate}</span>
+                                                <span className="tabular-nums font-mono">{device.lat.toFixed(4)}, {device.lng.toFixed(4)}</span>
                                             </div>
                                         </div>
                                     </button>
@@ -162,7 +191,7 @@
                                         <span className="w-2 h-2 bg-rose-500 rounded-full animate-ping"></span>
                                     </div>
                                     <p className="text-xs font-bold mb-1 leading-tight">모든 학생이 안전 구역 내에 위치하고 있습니다.</p>
-                                    <p className="text-[10px] text-slate-400">마지막 점검: 오늘 오후 3:40</p>
+                                    <p className="text-[10px] text-slate-400">마지막 점검: {new Date().toLocaleTimeString()}</p>
                                 </div>
                             </div>
                         </aside>
@@ -183,7 +212,7 @@
                                 <div className="bg-white/90 backdrop-blur shadow-xl border border-slate-200 rounded-2xl p-4 flex items-center gap-4">
                                     <div className="flex flex-col">
                                         <span className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Total Devices</span>
-                                        <span className="text-xl font-black text-slate-900">12 / 12</span>
+                                        <span className="text-xl font-black text-slate-900">3 / 3</span>
                                     </div>
                                     <div className="w-px h-8 bg-slate-200"></div>
                                     <div className="flex flex-col">
