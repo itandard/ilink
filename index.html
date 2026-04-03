@@ -1,0 +1,313 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  MapPin, 
+  Navigation, 
+  RefreshCw, 
+  Database, 
+  Send,
+  AlertCircle,
+  Satellite,
+  CheckCircle2
+} from 'lucide-react';
+
+/**
+ * 환경 변수 및 설정
+ */
+const SUPABASE_URL = ""; 
+const SUPABASE_ANON_KEY = "";
+const KAKAO_MAP_KEY = "173d252d4d96821fe2235b962120637b"; // 발급받은 JavaScript 키 입력
+const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'gps-tracker-app';
+
+const App = () => {
+  const [supabase, setSupabase] = useState(null);
+  const [user, setUser] = useState(null);
+  const [lat, setLat] = useState('35.190360'); 
+  const [lng, setLng] = useState('128.815600'); 
+  const [lastGps, setLastGps] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
+  const [error, setError] = useState(null);
+  const [countdown, setCountdown] = useState(10);
+  const [mapLoaded, setMapLoaded] = useState(false);
+
+  const mapRef = useRef(null);
+  const kakaoMapInstance = useRef(null);
+  const kakaoMarkerInstance = useRef(null);
+
+  // 1. Supabase 초기화
+  useEffect(() => {
+    const loadSupabase = () => {
+      if (window.supabase) {
+        initSupabase();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+      script.async = true;
+      script.onload = initSupabase;
+      document.head.appendChild(script);
+    };
+
+    const initSupabase = async () => {
+      try {
+        const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        setSupabase(client);
+        const { data, error: authError } = await client.auth.signInAnonymously();
+        if (authError) throw authError;
+        setUser(data.user);
+      } catch (err) {
+        setError("Supabase connection failed.");
+      }
+    };
+    loadSupabase();
+  }, []);
+
+  // 2. 카카오맵 초기화 함수 (새로고침 시 재사용 가능)
+  const initMap = () => {
+    if (!mapRef.current || !window.kakao || !window.kakao.maps) return;
+    
+    window.kakao.maps.load(() => {
+      const container = mapRef.current;
+      const options = {
+        center: new window.kakao.maps.LatLng(parseFloat(lat), parseFloat(lng)),
+        level: 3
+      };
+      
+      const map = new window.kakao.maps.Map(container, options);
+      kakaoMapInstance.current = map;
+
+      const markerPosition = new window.kakao.maps.LatLng(parseFloat(lat), parseFloat(lng));
+      const marker = new window.kakao.maps.Marker({
+        position: markerPosition
+      });
+      marker.setMap(map);
+      kakaoMarkerInstance.current = marker;
+
+      setMapLoaded(true);
+      setError(null);
+    });
+  };
+
+  // 3. 카카오맵 스크립트 로드
+  useEffect(() => {
+    const loadKakaoMap = () => {
+      if (window.kakao && window.kakao.maps) {
+        initMap();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_MAP_KEY}&autoload=false`;
+      script.async = true;
+      script.onload = initMap;
+      document.head.appendChild(script);
+    };
+
+    loadKakaoMap();
+  }, []);
+
+  // 4. 실시간 데이터 페칭
+  useEffect(() => {
+    if (!supabase || !user) return;
+
+    const fetchData = async () => {
+      try {
+        const { data, error: fetchError } = await supabase
+          .from(`artifacts/${APP_ID}/public/data/gps_logs`)
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (fetchError) throw fetchError;
+
+        if (data && data.length > 0) {
+          const newGps = data[0];
+          setLastGps(newGps);
+          updateMap(newGps.latitude, newGps.longitude);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setCountdown(10);
+      }
+    };
+
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          fetchData();
+          return 10;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [supabase, user]);
+
+  const updateMap = (newLat, newLng) => {
+    if (kakaoMapInstance.current && kakaoMarkerInstance.current) {
+      const moveLatLon = new window.kakao.maps.LatLng(parseFloat(newLat), parseFloat(newLng));
+      kakaoMapInstance.current.panTo(moveLatLon);
+      kakaoMarkerInstance.current.setPosition(moveLatLon);
+    }
+  };
+
+  // 수동 새로고침 함수
+  const handleManualRefresh = () => {
+    setIsLoading(true);
+    if (!mapLoaded) {
+      initMap();
+    }
+    // 데이터 즉시 동기화 시도
+    if (supabase && user) {
+      setCountdown(1);
+    }
+    setTimeout(() => setIsLoading(false), 500);
+  };
+
+  const sendGpsData = async () => {
+    if (!supabase || !user) {
+      setError("Please check Supabase settings.");
+      return;
+    }
+    setIsLoading(true);
+    setIsSuccess(false);
+    
+    try {
+      const targetLat = parseFloat(lat);
+      const targetLng = parseFloat(lng);
+      
+      const { error: insertError } = await supabase
+        .from(`artifacts/${APP_ID}/public/data/gps_logs`)
+        .insert([{ latitude: targetLat, longitude: targetLng, device_id: 'ESP32_KAKAO' }]);
+
+      if (insertError) throw insertError;
+
+      setIsSuccess(true);
+      updateMap(targetLat, targetLng);
+      setLastGps({ latitude: targetLat, longitude: targetLng, created_at: new Date().toISOString(), device_id: 'LOCAL' });
+      setTimeout(() => setIsSuccess(false), 2000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-slate-50 font-sans overflow-hidden text-slate-900">
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm z-20">
+        <div className="flex items-center gap-3">
+          <div className="bg-yellow-400 p-2 rounded-lg text-slate-900 shadow-sm">
+            <MapPin size={20} />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">카카오맵 실시간 관제</h1>
+            <p className="text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
+              <span className={`w-2 h-2 rounded-full ${user ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
+              {user ? '실시간 연결됨' : '연결 중...'} | {countdown}s
+            </p>
+          </div>
+        </div>
+        <button 
+          onClick={handleManualRefresh}
+          className="bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-full flex items-center gap-2 transition-colors border border-slate-200 active:scale-95"
+        >
+           <RefreshCw size={14} className={`text-yellow-600 ${isLoading ? 'animate-spin' : ''}`} />
+           <span className="text-xs font-bold text-slate-600 font-mono">새로고침</span>
+        </button>
+      </header>
+
+      <section className="p-4 bg-white border-b border-slate-200 z-10 shadow-sm">
+        <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-end gap-3">
+          <div className="flex-1 w-full grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Latitude</label>
+              <input 
+                type="number" 
+                step="0.000001"
+                className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-yellow-400 outline-none transition-all text-sm font-mono"
+                value={lat}
+                onChange={(e) => setLat(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 ml-1 uppercase">Longitude</label>
+              <input 
+                type="number" 
+                step="0.000001"
+                className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-yellow-400 outline-none transition-all text-sm font-mono"
+                value={lng}
+                onChange={(e) => setLng(e.target.value)}
+              />
+            </div>
+          </div>
+          <button 
+            onClick={sendGpsData}
+            disabled={isLoading || !user}
+            className="w-full md:w-auto bg-yellow-400 text-slate-900 px-8 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-yellow-500 active:scale-[0.98] transition-all disabled:opacity-50 shadow-md shadow-yellow-100"
+          >
+            {isSuccess ? <CheckCircle2 size={18} /> : <Send size={18} />}
+            {isSuccess ? "전송 성공" : "좌표 전송"}
+          </button>
+        </div>
+      </section>
+
+      <div className="flex-1 relative overflow-hidden">
+        <div ref={mapRef} className="w-full h-full bg-slate-100">
+          {!mapLoaded && (
+            <div className="flex flex-col items-center justify-center h-full text-slate-400 p-6 text-center">
+              <AlertCircle size={48} className="mb-4 opacity-20" />
+              <p className="font-bold text-slate-600 mb-1">카카오맵 로드 대기 중</p>
+              <p className="text-xs leading-relaxed">
+                JavaScript 키가 정확한지, <br/>
+                카카오 설정에서 현재 도메인이 등록되었는지 확인해주세요.
+              </p>
+              <button 
+                onClick={handleManualRefresh}
+                className="mt-6 text-blue-600 text-xs font-bold underline"
+              >
+                다시 시도하기
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="absolute bottom-6 left-6 right-6 md:right-auto md:w-80 z-10">
+          <div className="bg-white/95 backdrop-blur-md p-5 rounded-2xl shadow-2xl border border-slate-200">
+            <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+              <Database size={16} className="text-yellow-600" />
+              최신 GPS 정보
+            </h3>
+            {lastGps ? (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">위도</span>
+                  <span className="font-mono font-bold text-slate-700">{parseFloat(lastGps.latitude).toFixed(6)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">경도</span>
+                  <span className="font-mono font-bold text-slate-700">{parseFloat(lastGps.longitude).toFixed(6)}</span>
+                </div>
+                <div className="text-[10px] text-slate-400 text-right mt-3 pt-2 border-t border-slate-50">
+                  수신: {new Date(lastGps.created_at).toLocaleTimeString()}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 text-center py-4 italic">수신 데이터 없음</p>
+            )}
+
+            {error && (
+              <div className="mt-4 p-3 bg-red-50 text-red-600 text-[11px] rounded-lg border border-red-100 flex items-center gap-2">
+                <AlertCircle size={14} />
+                <span>{error}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default App;
