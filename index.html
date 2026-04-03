@@ -122,4 +122,63 @@
                         <div ref={mapRef} className="w-full h-full grayscale-[0.1]">
                             {mapError && (
                                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-8 text-center">
-                                    <div className="max-w-md w-full bg-slate-900 border
+                                    <div className="max-w-md w-full bg-slate-900 border border-red-900/50 p-8 rounded-3xl shadow-2xl">
+                                        <div className="w-20 h-20 bg-red-900/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-900/30">
+                                            <Icon name="shield-off" size={40} />
+                                        </div>
+                                        <h2 className="text-2xl font-bold mb-2 text-red-400">연결 보안 오류</h2>
+                                        <p className="text-sm text-slate-400 mb-8 leading-relaxed">
+                                            카카오 서버가 요청을 거부했습니다.<br/>
+                                            키 값이 <b>JavaScript 키</b>가 맞는지,<br/>
+                                            아래 도메인이 <b>[내 애플리케이션 > 플랫폼]</b>에<br/>
+                                            정확히 등록되었는지 확인하세요.
+                                        </p>
+                                        
+                                        <div className="bg-black/50 p-4 rounded-2xl mb-8 text-left border border-slate-800">
+                                            <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">카카오 등록 필수 주소</p>
+                                            <code className="text-xs font-mono font-bold text-yellow-500 break-all select-all">{window.location.origin}</code>
+                                        </div>
+
+                                        <button onClick={() => window.location.reload()} className="w-full bg-white text-black font-black py-4 rounded-2xl hover:bg-slate-200 transition-all">
+                                            설정 확인 후 재시도
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                            {!mapLoaded && !mapError && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900">
+                                    <div className="w-12 h-12 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mb-4"></div>
+                                    <p className="text-slate-400 font-bold animate-pulse text-sm">SECURITY HANDSHAKE...</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Status Overlay */}
+                        <div className="absolute bottom-6 left-6 right-6 md:w-80 z-40">
+                            <div className="bg-slate-900/80 backdrop-blur-xl p-6 rounded-3xl border border-slate-700 shadow-2xl">
+                                <div className="flex justify-between items-center mb-6">
+                                    <span className="text-[10px] font-black text-yellow-400 tracking-[0.2em]">GPS DATA</span>
+                                    <span className="flex h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]"></span>
+                                </div>
+                                <div className="space-y-4 font-mono">
+                                    <div>
+                                        <label className="text-[9px] text-slate-500 block mb-1 uppercase tracking-widest">Latitude</label>
+                                        <div className="text-xl font-bold tracking-tight">{parseFloat(lat).toFixed(6)}</div>
+                                    </div>
+                                    <div>
+                                        <label className="text-[9px] text-slate-500 block mb-1 uppercase tracking-widest">Longitude</label>
+                                        <div className="text-xl font-bold tracking-tight">{parseFloat(lng).toFixed(6)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
