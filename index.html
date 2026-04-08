@@ -21,7 +21,6 @@
             color: white; font-size: 11px; font-weight: 800; white-space: nowrap;
             box-shadow: 0 4px 10px rgba(0,0,0,0.2); border: 2px solid white; transform: translateX(-50%);
         }
-        /* 이전의 세련된 로그인 배경 스타일 복구 */
         .login-bg {
             background-color: #f1f5f9;
             background-image: radial-gradient(at 0% 0%, rgba(30, 64, 175, 0.05) 0, transparent 50%), 
@@ -48,7 +47,6 @@
             const [authForm, setAuthForm] = useState({ id: '', pw: '' });
             
             const mapInstance = useRef(null);
-            const markers = useRef({});
 
             useEffect(() => {
                 if (window.lucide) window.lucide.createIcons();
@@ -88,7 +86,7 @@
                     }
 
                     // 2. 로그인 기록 삽입 (t_login)
-                    const { error: logError } = await supabase
+                    await supabase
                         .from('t_login')
                         .insert([
                             { 
@@ -99,18 +97,12 @@
                             }
                         ]);
 
-                    if (logError) {
-                        console.error("t_login insert 에러 상세:", logError);
-                    } else {
-                        console.log("t_login 기록 성공");
-                    }
-
                     setUser(userData);
                     setView('main');
                     fetchStudents();
 
                 } catch (err) {
-                    console.error("예상치 못한 오류:", err);
+                    console.error("오류:", err);
                     alert("시스템 오류가 발생했습니다.");
                 } finally {
                     setLoading(false);
@@ -125,8 +117,7 @@
                         name: s.stu_name,
                         color: ['#EF4444', '#3B82F6', '#10B981'][idx % 3],
                         lat: 35.2456 + (Math.random() * 0.002),
-                        lng: 128.6922 + (Math.random() * 0.002),
-                        path: []
+                        lng: 128.6922 + (Math.random() * 0.002)
                     })));
                 }
             };
@@ -173,7 +164,16 @@
                                     ) : "로그인"}
                                 </button>
                             </form>
-                            <p className="text-center text-[11px] text-slate-400 mt-8 font-medium">
+                            
+                            {/* 회원가입 링크 추가 */}
+                            <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+                                <a href="signup.html" className="text-blue-600 text-xs font-bold hover:underline flex items-center justify-center gap-1">
+                                    <i data-lucide="user-plus" className="w-3 h-3"></i>
+                                    신규 관리자 계정 생성하기
+                                </a>
+                            </div>
+
+                            <p className="text-center text-[11px] text-slate-400 mt-6 font-medium">
                                 © 2026 EYE-LINK. All rights reserved.
                             </p>
                         </div>
