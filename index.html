@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Eye-Link Monitoring</title>
+    <title>아이-링크(Eye-Link) 관제 시스템</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -19,7 +19,7 @@
             font-family: 'Pretendard', sans-serif; 
             margin: 0; 
             overflow: hidden; 
-            background-color: #f8fafc; /* 배경을 밝고 깨끗한 톤으로 수정 */
+            background-color: #f8fafc;
         }
 
         :root {
@@ -27,7 +27,7 @@
             --brand-dark: #0f172a;
         }
 
-        #map { width: 100%; height: 100%; }
+        #map { width: 100%; height: 100%; position: absolute; top: 0; bottom: 0; left: 0; right: 0; }
 
         .student-marker-label {
             position: relative;
@@ -45,7 +45,6 @@
         }
 
         .login-bg {
-            /* 완전 파란색이 아닌, 은은한 그라데이션과 밝은 배경 조합 */
             background-color: #f1f5f9;
             background-image: radial-gradient(at 0% 0%, rgba(30, 64, 175, 0.05) 0, transparent 50%), 
                               radial-gradient(at 100% 0%, rgba(30, 64, 175, 0.1) 0, transparent 50%);
@@ -61,15 +60,15 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useCallback } = React;
 
-        // Supabase Client
+        // Supabase 설정
         const SUPABASE_URL = "https://wedgzkwlkouheqfktskl.supabase.co"; 
         const SUPABASE_ANON_KEY = "sb_publishable_OY6cu-DKhs1QuXJUCu0g4g_YwsRZNc-"; 
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // 입력창 컴포넌트를 외부로 분리 (포커스 끊김 방지 핵심 수정)
+        // 입력창 컴포넌트 (한글화 및 포커스 유지)
         const InputField = ({ label, type="text", placeholder, value, onChange }) => (
             <div className="mb-4 text-left">
-                <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 uppercase tracking-wider">{label}</label>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1.5 ml-1 tracking-tight">{label}</label>
                 <input 
                     type={type}
                     placeholder={placeholder}
@@ -86,13 +85,12 @@
             const [user, setUser] = useState(null);
             const [students, setStudents] = useState([]);
             const [loading, setLoading] = useState(false);
-            
             const [authForm, setAuthForm] = useState({ id: '', pw: '', name: '', school: '' });
             
             const mapInstance = useRef(null);
             const markers = useRef({});
 
-            // 학생 데이터 로드 (t_student 테이블의 stu_name 컬럼 참조)
+            // 학생 데이터 로드
             const fetchStudents = async () => {
                 const { data, error } = await supabase
                     .from('t_student')
@@ -142,19 +140,31 @@
                 });
 
                 if (error) {
-                    alert("가입 실패: " + error.message);
+                    alert("등록 실패: " + error.message);
                 } else {
-                    alert("가입되었습니다! 로그인 해주세요.");
+                    alert("성공적으로 등록되었습니다! 로그인 해주세요.");
                     setView('login');
                 }
                 setLoading(false);
             };
 
+            // 지도 초기화 및 리레이아웃 (잘림 현상 방지)
             useEffect(() => {
-                if (view === 'main' && !mapInstance.current) {
-                    const container = document.getElementById('map');
-                    const options = { center: new window.kakao.maps.LatLng(35.2456, 128.6922), level: 3 };
-                    mapInstance.current = new window.kakao.maps.Map(container, options);
+                if (view === 'main') {
+                    // 화면 전환 후 컨테이너가 확실히 렌더링될 때까지 미세한 지연 후 실행
+                    setTimeout(() => {
+                        const container = document.getElementById('map');
+                        if (!container) return;
+
+                        if (!mapInstance.current) {
+                            const options = { center: new window.kakao.maps.LatLng(35.2456, 128.6922), level: 3 };
+                            mapInstance.current = new window.kakao.maps.Map(container, options);
+                        } else {
+                            // 이미 지도가 있다면 크기를 재계산
+                            mapInstance.current.relayout();
+                            mapInstance.current.setCenter(new window.kakao.maps.LatLng(35.2456, 128.6922));
+                        }
+                    }, 100);
                 }
             }, [view]);
 
@@ -181,23 +191,23 @@
                                 <div className="inline-block p-4 bg-blue-700 rounded-2xl mb-5 shadow-xl shadow-blue-100">
                                     <i data-lucide="eye" className="text-white w-8 h-8"></i>
                                 </div>
-                                <h1 className="text-3xl font-black text-slate-900 tracking-tighter mb-1">EYE-LINK</h1>
+                                <h1 className="text-3xl font-black text-slate-900 tracking-tighter mb-1">아이-링크(Eye-Link)</h1>
                                 <div className="h-1 w-12 bg-blue-600 mx-auto rounded-full mb-2"></div>
-                                <p className="text-[10px] font-bold text-slate-400 tracking-[0.2em] uppercase">Student Management System</p>
+                                <p className="text-[11px] font-bold text-slate-500 tracking-tight">특수아동 현장체험학습 안전 솔루션</p>
                             </div>
 
                             <form onSubmit={view === 'login' ? handleLogin : handleSignup}>
                                 {view === 'signup' && (
-                                    <InputField label="Name" placeholder="관리자 실명" value={authForm.name} onChange={e => setAuthForm({...authForm, name: e.target.value})} />
+                                    <InputField label="사용자 이름" placeholder="관리자 실명 입력" value={authForm.name} onChange={e => setAuthForm({...authForm, name: e.target.value})} />
                                 )}
-                                <InputField label="ID" placeholder="아이디" value={authForm.id} onChange={e => setAuthForm({...authForm, id: e.target.value})} />
-                                <InputField label="Password" type="password" placeholder="비밀번호" value={authForm.pw} onChange={e => setAuthForm({...authForm, pw: e.target.value})} />
+                                <InputField label="아이디" placeholder="아이디를 입력하세요" value={authForm.id} onChange={e => setAuthForm({...authForm, id: e.target.value})} />
+                                <InputField label="비밀번호" type="password" placeholder="비밀번호를 입력하세요" value={authForm.pw} onChange={e => setAuthForm({...authForm, pw: e.target.value})} />
                                 {view === 'signup' && (
-                                    <InputField label="School" placeholder="학교명 (예: 창원초등학교)" value={authForm.school} onChange={e => setAuthForm({...authForm, school: e.target.value})} />
+                                    <InputField label="소속 학교" placeholder="학교명 (예: 창원초등학교)" value={authForm.school} onChange={e => setAuthForm({...authForm, school: e.target.value})} />
                                 )}
                                 
                                 <button className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-4 rounded-xl shadow-lg transition-all mt-4 text-sm active:scale-[0.98]">
-                                    {loading ? "처리 중..." : (view === 'login' ? "로그인하기" : "관리자 등록 완료")}
+                                    {loading ? "처리 중..." : (view === 'login' ? "로그인" : "관리자 등록 완료")}
                                 </button>
                             </form>
 
@@ -214,7 +224,7 @@
                 );
             }
 
-            // 메인 대시보드 화면
+            // 메인 관제 화면
             return (
                 <div className="h-screen flex flex-col bg-white text-slate-900">
                     <header className="h-20 bg-white border-b border-slate-100 flex items-center justify-between px-10 z-20">
@@ -223,14 +233,14 @@
                                 <i data-lucide="shield-check" className="text-white w-6 h-6"></i>
                             </div>
                             <div>
-                                <h2 className="font-black text-xl tracking-tighter text-slate-900">아이-링크 관제 현황</h2>
-                                <p className="text-[10px] text-blue-600 font-bold tracking-widest uppercase">Safe Campus Monitoring</p>
+                                <h2 className="font-black text-xl tracking-tighter text-slate-900">아이-링크(Eye-Link) 관제 현황</h2>
+                                <p className="text-[10px] text-blue-600 font-bold tracking-tight uppercase">특수아동 현장체험학습 안전 솔루션</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-6">
                             <div className="flex flex-col items-end border-r pr-6 border-slate-100">
                                 <p className="text-sm font-black text-slate-900 leading-none mb-1">{user?.user_name} 관리자님</p>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">{user?.user_school}</p>
+                                <p className="text-[10px] text-slate-400 font-bold tracking-tight">{user?.user_school}</p>
                             </div>
                             <button onClick={() => setView('login')} className="flex items-center gap-2 text-slate-400 hover:text-red-500 transition-all group font-bold text-xs">
                                 <span>로그아웃</span>
@@ -240,12 +250,12 @@
                     </header>
 
                     <div className="flex-1 flex overflow-hidden">
-                        <aside className="w-72 border-r border-slate-100 bg-slate-50/50 flex flex-col z-10">
+                        <aside className="w-72 border-r border-slate-100 bg-slate-50/50 flex flex-col z-10 shadow-sm">
                             <div className="p-6 border-b border-slate-100 bg-white flex items-center justify-between">
-                                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em]">보호 대상 명단</h3>
+                                <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest">보호 대상 명단</h3>
                                 <div className="flex items-center gap-1.5 bg-blue-50 text-blue-600 text-[9px] font-black px-2 py-1 rounded-md">
                                     <span className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-pulse"></span>
-                                    ONLINE
+                                    실시간
                                 </div>
                             </div>
                             <div className="flex-1 overflow-y-auto p-5 space-y-3 custom-scroll">
@@ -257,10 +267,10 @@
                                         <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: s.color }}></div>
                                         <div className="flex-1">
                                             <p className="text-sm font-bold text-slate-800">{s.name}</p>
-                                            <p className="text-[9px] text-slate-400 font-bold mt-1 uppercase tracking-tight">ID: {s.id}</p>
+                                            <p className="text-[9px] text-slate-400 font-bold mt-1 tracking-tight">학번: {s.id}</p>
                                         </div>
                                         <div className="px-2 py-1 bg-slate-50 rounded-lg text-[9px] font-bold text-slate-400">
-                                            신호 양호
+                                            연결중
                                         </div>
                                     </div>
                                 ))}
@@ -273,17 +283,19 @@
                             </div>
                         </aside>
 
-                        <main className="flex-1 relative">
+                        <main className="flex-1 relative bg-slate-100">
+                            {/* 지도 컨테이너가 꽉 차도록 설정 */}
                             <div id="map"></div>
+                            
                             <div className="absolute top-8 left-8 z-10">
-                                <div className="bg-white/80 backdrop-blur-xl shadow-2xl px-6 py-4 rounded-[1.5rem] border border-white/50 flex items-center gap-4">
+                                <div className="bg-white/90 backdrop-blur-xl shadow-2xl px-6 py-4 rounded-[1.5rem] border border-white/50 flex items-center gap-4">
                                     <div className="relative">
                                         <div className="w-3 h-3 bg-green-500 rounded-full animate-ping absolute inset-0"></div>
                                         <div className="w-3 h-3 bg-green-500 rounded-full relative"></div>
                                     </div>
                                     <div>
-                                        <p className="text-[10px] font-black text-slate-800 uppercase tracking-tighter leading-none mb-1">System Status</p>
-                                        <p className="text-[9px] text-slate-500 font-bold">실시간 GPS 서버 데이터 수신 중...</p>
+                                        <p className="text-[10px] font-black text-slate-800 leading-none mb-1">시스템 상태</p>
+                                        <p className="text-[9px] text-slate-500 font-bold">GPS 데이터 정상 수신 중</p>
                                     </div>
                                 </div>
                             </div>
