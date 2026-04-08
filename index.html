@@ -32,7 +32,7 @@
             border: 1px solid rgba(255,255,255,0.2);
         }
 
-        /* 선호하셨던 파란색 계열의 세련된 그라데이션 배경 */
+        /* 세련된 파란색 그라데이션 배경 */
         .login-bg {
             background: linear-gradient(135deg, #f0f7ff 0%, #e0eefc 100%);
             position: relative;
@@ -67,6 +67,7 @@
             const [view, setView] = useState('login'); 
             const [user, setUser] = useState(null);
             const [loginInfo, setLoginInfo] = useState({ id: '', pw: '' });
+            const [mapIsReady, setMapIsReady] = useState(false);
             
             // 학생 가상 데이터
             const [students, setStudents] = useState([
@@ -86,6 +87,7 @@
                 if (!container || mapRef.current) return;
                 const options = { center: new window.kakao.maps.LatLng(35.2456, 128.6922), level: 4 };
                 mapRef.current = new window.kakao.maps.Map(container, options);
+                setMapIsReady(true);
             };
 
             const handleLogin = async (e) => {
@@ -99,7 +101,6 @@
 
                 if (error || !data) return alert("아이디 또는 비밀번호가 일치하지 않습니다.");
                 
-                // 로그인 로그 기록 (업데이트 시간 파라미터 제외: DB에서 자동 처리하도록 구성)
                 await supabase.from('t_login').insert([{ 
                     user_id: loginInfo.id, 
                     platform: 'Web', 
@@ -111,7 +112,7 @@
             };
 
             useEffect(() => {
-                if (view !== 'dashboard') return;
+                if (view !== 'dashboard' || !mapIsReady) return;
 
                 const moveInterval = setInterval(() => {
                     setStudents(prev => prev.map(s => {
@@ -150,10 +151,10 @@
                 }, 3000);
 
                 return () => clearInterval(moveInterval);
-            }, [view]);
+            }, [view, mapIsReady]);
 
             useEffect(() => {
-                if (!mapRef.current) return;
+                if (!mapRef.current || !mapIsReady) return;
                 if (polylineRef.current) polylineRef.current.setMap(null);
 
                 if (selectedStudentId) {
@@ -167,55 +168,73 @@
                             strokeStyle: 'dashed'
                         });
                         polylineRef.current.setMap(mapRef.current);
+                        
+                        // 클릭 시 해당 학생 위치로 지도 중심 이동
+                        const moveLatLng = new window.kakao.maps.LatLng(student.lat, student.lng);
+                        mapRef.current.panTo(moveLatLng);
                     }
                 }
-            }, [students, selectedStudentId]);
+            }, [students, selectedStudentId, mapIsReady]);
 
             useEffect(() => {
-                if (view === 'dashboard') setTimeout(initMap, 100);
+                if (view === 'dashboard') {
+                    const checkKakao = setInterval(() => {
+                        if (window.kakao && window.kakao.maps) {
+                            initMap();
+                            clearInterval(checkKakao);
+                        }
+                    }, 100);
+                    return () => clearInterval(checkKakao);
+                }
             }, [view]);
 
             if (view === 'login') {
                 return (
                     <div className="h-screen flex items-center justify-center login-bg p-6 font-sans">
-                        <div className="bg-white/90 backdrop-blur-2xl p-12 rounded-[3.5rem] shadow-[0_40px_80px_-20px_rgba(37,99,235,0.15)] border border-blue-50 w-full max-w-[440px]">
-                            <div className="text-center mb-12">
-                                <div className="inline-flex items-center justify-center w-20 h-20 bg-blue-600 rounded-[2.2rem] mb-6 shadow-2xl shadow-blue-200">
-                                    <LucideIcon name="eye" size={40} className="text-white" />
+                        <div className="bg-white/90 backdrop-blur-2xl p-10 rounded-[2.5rem] shadow-[0_40px_80px_-20px_rgba(37,99,235,0.15)] border border-blue-50 w-full max-w-[400px]">
+                            <div className="text-center mb-10">
+                                <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-4 shadow-xl shadow-blue-100">
+                                    <LucideIcon name="eye" size={32} className="text-white" />
                                 </div>
-                                <h2 className="text-4xl font-black text-slate-900 tracking-tighter mb-2">EYE-LINK</h2>
-                                <p className="text-[11px] font-bold text-blue-500 uppercase tracking-[0.4em] ml-1">관제 시스템 관리자</p>
+                                <h2 className="text-3xl font-black text-slate-900 tracking-tighter mb-1">EYE-LINK</h2>
+                                <p className="text-[10px] font-bold text-blue-500 uppercase tracking-[0.3em] ml-1">관제 시스템 관리자</p>
                             </div>
                             
-                            <form onSubmit={handleLogin} className="space-y-6">
-                                <div className="space-y-2">
-                                    <label className="text-[11px] font-black text-slate-400 ml-2 uppercase tracking-widest">관리자 아이디</label>
+                            <form onSubmit={handleLogin} className="space-y-5">
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-slate-400 ml-1 uppercase tracking-widest">아이디</label>
                                     <input 
-                                        className="w-full px-7 py-4.5 bg-blue-50/50 border border-blue-100 rounded-2xl outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-400 transition-all font-bold text-slate-700 placeholder:text-blue-200" 
+                                        className="w-full px-6 py-4 bg-blue-50/50 border border-blue-100 rounded-2xl outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-400 transition-all font-bold text-slate-700 placeholder:text-blue-200 text-sm" 
                                         placeholder="아이디를 입력하세요" 
                                         value={loginInfo.id} 
                                         onChange={e => setLoginInfo({...loginInfo, id: e.target.value})} 
                                         required 
                                     />
                                 </div>
-                                <div className="space-y-2">
-                                    <label className="text-[11px] font-black text-slate-400 ml-2 uppercase tracking-widest">비밀번호</label>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-slate-400 ml-1 uppercase tracking-widest">비밀번호</label>
                                     <input 
                                         type="password" 
-                                        className="w-full px-7 py-4.5 bg-blue-50/50 border border-blue-100 rounded-2xl outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-400 transition-all font-bold text-slate-700 placeholder:text-blue-200" 
+                                        className="w-full px-6 py-4 bg-blue-50/50 border border-blue-100 rounded-2xl outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-400 transition-all font-bold text-slate-700 placeholder:text-blue-200 text-sm" 
                                         placeholder="비밀번호를 입력하세요" 
                                         value={loginInfo.pw} 
                                         onChange={e => setLoginInfo({...loginInfo, pw: e.target.value})} 
                                         required 
                                     />
                                 </div>
-                                <button className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl hover:bg-blue-700 transition-all shadow-2xl shadow-blue-100 mt-8 active:scale-[0.97] text-lg tracking-tight">
-                                    시스템 접속하기
+                                <button className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 mt-4 active:scale-[0.98] text-base tracking-tight">
+                                    로그인
                                 </button>
                             </form>
                             
-                            <div className="mt-12 pt-8 border-t border-blue-50 text-center">
-                                <p className="text-[12px] text-blue-300 font-bold tracking-widest uppercase">© 2026 EYE-LINK TECHNOLOGY</p>
+                            <div className="mt-8 pt-6 border-t border-blue-50 flex flex-col items-center gap-4">
+                                <button 
+                                    onClick={() => window.location.href = 'signup.html'}
+                                    className="text-sm font-bold text-slate-400 hover:text-blue-600 transition-colors"
+                                >
+                                    처음이신가요? <span className="text-blue-500 underline underline-offset-4">회원가입</span>
+                                </button>
+                                <p className="text-[10px] text-blue-200 font-bold tracking-widest uppercase">© 2026 EYE-LINK TECH</p>
                             </div>
                         </div>
                     </div>
