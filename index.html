@@ -63,6 +63,17 @@
         const SUPABASE_ANON_KEY = "sb_publishable_OY6cu-DKhs1QuXJUCu0g4g_YwsRZNc-"; 
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+        /**
+         * [참고] Supabase SQL Editor에 아래 쿼리를 실행해야 로그가 정상 기록됩니다.
+         * * CREATE OR REPLACE FUNCTION fn_login_log(p_user_id TEXT, p_device_info TEXT)
+         * RETURNS VOID AS $$
+         * BEGIN
+         * INSERT INTO t_login (user_id, login_time, device_info)
+         * VALUES (p_user_id, CURRENT_TIMESTAMP, p_device_info);
+         * END;
+         * $$ LANGUAGE plpgsql;
+         */
+
         const InputField = ({ label, type="text", placeholder, value, onChange }) => (
             <div className="mb-4 text-left">
                 <label className="block text-[11px] font-bold text-slate-500 mb-1.5 ml-1 tracking-tight">{label}</label>
@@ -86,6 +97,7 @@
             
             const mapInstance = useRef(null);
             const markers = useRef({});
+            const paths = useRef({}); // 학생별 이동 경로(Polyline) 저장
 
             // 학생 데이터 초기 로드 및 색상 할당
             const fetchStudents = async () => {
@@ -100,7 +112,8 @@
                         name: s.stu_name,
                         color: colors[idx % colors.length],
                         lat: 35.2456 + (Math.random() * 0.002 - 0.001),
-                        lng: 128.6922 + (Math.random() * 0.002 - 0.001)
+                        lng: 128.6922 + (Math.random() * 0.002 - 0.001),
+                        history: [] // 이동 경로 좌표 저장용
                     }));
                     setStudents(formatted);
                 }
@@ -110,11 +123,17 @@
             useEffect(() => {
                 if (view === 'main' && students.length > 0) {
                     const interval = setInterval(() => {
-                        setStudents(prev => prev.map(s => ({
-                            ...s,
-                            lat: s.lat + (Math.random() * 0.0004 - 0.0002),
-                            lng: s.lng + (Math.random() * 0.0004 - 0.0002)
-                        })));
+                        setStudents(prev => prev.map(s => {
+                            const newLat = s.lat + (Math.random() * 0.0004 - 0.0002);
+                            const newLng = s.lng + (Math.random() * 0.0004 - 0.0002);
+                            return {
+                                ...s,
+                                lat: newLat,
+                                lng: newLng,
+                                // 경로 기록 유지 (최근 20개 지점)
+                                history: [...(s.history || []), { lat: s.lat, lng: s.lng }].slice(-20)
+                            };
+                        }));
                     }, 3000);
                     return () => clearInterval(interval);
                 }
@@ -125,7 +144,6 @@
                 setLoading(true);
                 
                 try {
-                    // 1. 사용자 인증 확인
                     const { data, error } = await supabase
                         .from('t_user')
                         .select('*')
@@ -134,16 +152,11 @@
                         .single();
 
                     if (data) {
-                        // 2. 로그인 성공 시 t_login 테이블에 기록 남기기
-                        await supabase
-                            .from('t_login')
-                            .insert([
-                                { 
-                                    user_id: authForm.id, 
-                                    login_time: new Date().toISOString(),
-                                    device_info: window.navigator.userAgent 
-                                }
-                            ]);
+                        // 로그인 성공 시 RPC 함수를 통해 안전하게 기록
+                        await supabase.rpc('fn_login_log', {
+                            p_user_id: authForm.id,
+                            p_device_info: window.navigator.userAgent
+                        });
 
                         setUser(data);
                         setView('main');
@@ -195,20 +208,19 @@
                 }
             }, [view]);
 
-            // 학생 마커 및 오버레이 업데이트 (위치 변화 감지)
+            // 학생 마커, 오버레이 및 이동 경로(점선) 업데이트
             useEffect(() => {
                 if (view === 'main' && mapInstance.current) {
                     students.forEach(s => {
                         const position = new window.kakao.maps.LatLng(s.lat, s.lng);
                         
+                        // 1. 마커 및 이름표 처리
                         if (!markers.current[s.id]) {
-                            // 마커 생성
                             const marker = new window.kakao.maps.Marker({ 
                                 position: position, 
                                 map: mapInstance.current 
                             });
                             
-                            // 커스텀 오버레이 생성 (고유 색상 적용)
                             const content = `<div class="student-marker-label" style="background-color: ${s.color}">${s.name}</div>`;
                             const overlay = new window.kakao.maps.CustomOverlay({ 
                                 position: position, 
@@ -218,9 +230,30 @@
                             
                             markers.current[s.id] = { marker, overlay };
                         } else {
-                            // 기존 마커 및 오버레이 위치 이동
                             markers.current[s.id].marker.setPosition(position);
                             markers.current[s.id].overlay.setPosition(position);
+                        }
+
+                        // 2. 이동 경로(점선) 처리
+                        if (s.history && s.history.length > 0) {
+                            const linePath = [
+                                ...s.history.map(h => new window.kakao.maps.LatLng(h.lat, h.lng)),
+                                position
+                            ];
+
+                            if (!paths.current[s.id]) {
+                                const polyline = new window.kakao.maps.Polyline({
+                                    path: linePath,
+                                    strokeWeight: 3,
+                                    strokeColor: s.color,
+                                    strokeOpacity: 0.7,
+                                    strokeStyle: 'dash' // 점선 스타일 적용
+                                });
+                                polyline.setMap(mapInstance.current);
+                                paths.current[s.id] = polyline;
+                            } else {
+                                paths.current[s.id].setPath(linePath);
+                            }
                         }
                     });
                 }
@@ -231,7 +264,6 @@
                     <div className="h-screen flex items-center justify-center login-bg px-6">
                         <div className="bg-white p-10 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] w-full max-w-[420px] border border-slate-100">
                             <div className="text-center mb-10">
-                                {/* 눈 모양 아이콘 복구 */}
                                 <div className="inline-block p-4 bg-blue-700 rounded-2xl mb-5 shadow-xl shadow-blue-100">
                                     <i data-lucide="eye" className="text-white w-8 h-8"></i>
                                 </div>
@@ -331,7 +363,7 @@
                                     </div>
                                     <div>
                                         <p className="text-[10px] font-black text-slate-800 leading-none mb-1">시스템 상태</p>
-                                        <p className="text-[9px] text-slate-500 font-bold">3초 간격 위치 업데이트 중</p>
+                                        <p className="text-[9px] text-slate-500 font-bold">실시간 이동 경로(점선) 표시 중</p>
                                     </div>
                                 </div>
                             </div>
