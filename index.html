@@ -20,7 +20,6 @@
         .custom-scroll::-webkit-scrollbar-track { background: transparent; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         
-        /* 이름표 마커 커스텀 스타일 */
         .marker-wrapper {
             position: relative;
             bottom: 40px;
@@ -76,12 +75,11 @@
                 if (window.lucide) window.lucide.createIcons();
             }, [view]);
 
-            // 이동 경로 시뮬레이션 개선 (오차 감소 및 매끄러운 이동)
+            // 이동 경로 동기화 로직 개선
             useEffect(() => {
                 if (view === 'main' && students.length > 0) {
                     const moveInterval = setInterval(() => {
                         setStudents(prev => prev.map(s => {
-                            // 이동 반경을 좁혀서 경로를 더 매끄럽게 보정
                             const step = 0.00015;
                             const moveX = (Math.random() - 0.5) * step;
                             const moveY = (Math.random() - 0.5) * step;
@@ -90,9 +88,9 @@
                             const newLng = s.lng + moveY;
                             const newPos = new window.kakao.maps.LatLng(newLat, newLng);
                             
-                            // 경로 데이터 누적
+                            // 중요: 새 위치를 포함한 전체 경로를 즉시 생성하여 간격 발생 억제
                             const newHistory = [...(s.history || []), newPos];
-                            if (newHistory.length > 30) newHistory.shift(); // 더 긴 경로 유지
+                            if (newHistory.length > 50) newHistory.shift(); 
 
                             return { ...s, lat: newLat, lng: newLng, history: newHistory };
                         }));
@@ -140,15 +138,15 @@
                         overlays.current[s.id].setPosition(position);
                     }
 
-                    // 2. 이동 경로 선 업데이트 (매끄러운 실선)
+                    // 2. 이동 경로 선 업데이트 (현위치와 연결 보강)
                     if (s.history && s.history.length > 1) {
                         if (paths.current[s.id]) paths.current[s.id].setMap(null);
                         
                         paths.current[s.id] = new window.kakao.maps.Polyline({
-                            path: s.history,
+                            path: s.history, // history의 마지막 점이 곧 현위치 마커 좌표임
                             strokeWeight: 4,
                             strokeColor: s.color,
-                            strokeOpacity: 0.6,
+                            strokeOpacity: 0.8,
                             strokeStyle: 'solid'
                         });
                         paths.current[s.id].setMap(mapInstance.current);
@@ -204,13 +202,14 @@
                     setStudents(data.map((s, idx) => {
                         const baseLat = 35.2456;
                         const baseLng = 128.6922;
+                        const startPos = new window.kakao.maps.LatLng(baseLat, baseLng);
                         return {
                             id: s.stu_no,
                             name: s.stu_name,
                             color: colors[idx % colors.length],
-                            lat: baseLat + (Math.random() - 0.5) * 0.001,
-                            lng: baseLng + (Math.random() - 0.5) * 0.001,
-                            history: []
+                            lat: baseLat,
+                            lng: baseLng,
+                            history: [startPos]
                         };
                     }));
                 }
