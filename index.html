@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Eye-Link Student Tracking</title>
+    <title>Eye-Link Monitoring</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com_react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -103,7 +103,7 @@
                     user_id: loginInfo.id, 
                     platform: 'Web', 
                     user_agent: navigator.userAgent,
-                    login_time: kstNow // DB 컬럼명에 맞춰 전달
+                    login_time: kstNow 
                 }]);
                 
                 setUser(data);
@@ -182,11 +182,11 @@
                 return (
                     <div className="h-screen flex items-center justify-center bg-slate-100 p-6">
                         <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-sm">
-                            <h2 className="text-2xl font-black mb-6 text-center">Eye-Link Login</h2>
+                            <h2 className="text-2xl font-black mb-6 text-center tracking-tighter">EYE-LINK LOGIN</h2>
                             <form onSubmit={handleLogin} className="space-y-4">
-                                <input className="w-full p-4 bg-slate-50 border rounded-xl" placeholder="ID" value={loginInfo.id} onChange={e => setLoginInfo({...loginInfo, id: e.target.value})} required />
-                                <input type="password" className="w-full p-4 bg-slate-50 border rounded-xl" placeholder="PW" value={loginInfo.pw} onChange={e => setLoginInfo({...loginInfo, pw: e.target.value})} required />
-                                <button className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl">접속하기</button>
+                                <input className="w-full p-4 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-slate-900 transition-all" placeholder="ID" value={loginInfo.id} onChange={e => setLoginInfo({...loginInfo, id: e.target.value})} required />
+                                <input type="password" className="w-full p-4 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-slate-900 transition-all" placeholder="PW" value={loginInfo.pw} onChange={e => setLoginInfo({...loginInfo, pw: e.target.value})} required />
+                                <button className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl hover:bg-black transition-all">접속하기</button>
                             </form>
                         </div>
                     </div>
@@ -199,7 +199,7 @@
                         <span className="font-black text-lg tracking-tighter">EYE-LINK MONITORING</span>
                         <div className="flex items-center gap-3">
                             <span className="text-xs font-bold text-slate-500">{user?.user_name} 관리자</span>
-                            <button onClick={() => setView('login')} className="text-slate-400 hover:text-red-500"><LucideIcon name="log-out" size={18} /></button>
+                            <button onClick={() => setView('login')} className="text-slate-400 hover:text-red-500 transition-colors"><LucideIcon name="log-out" size={18} /></button>
                         </div>
                     </header>
 
