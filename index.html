@@ -6,7 +6,7 @@
     <title>Eye-Link Student Tracking</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com_react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -44,6 +44,22 @@
         const SUPABASE_ANON_KEY = "sb_publishable_OY6cu-DKhs1QuXJUCu0g4g_YwsRZNc-"; 
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+        // 한국 시간 포맷터 (YYYY-MM-DD HH:mm:ss)
+        const getKSTTime = () => {
+            const now = new Date();
+            const options = {
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                hour12: false,
+                timeZone: 'Asia/Seoul'
+            };
+            const formatter = new Intl.DateTimeFormat('ko-KR', options);
+            const parts = formatter.formatToParts(now);
+            const p = {};
+            parts.forEach(({type, value}) => p[type] = value);
+            return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+        };
+
         const LucideIcon = ({ name, size = 18, className = "" }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name, size]);
             return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
@@ -54,7 +70,7 @@
             const [user, setUser] = useState(null);
             const [loginInfo, setLoginInfo] = useState({ id: '', pw: '' });
             
-            // 학생 초기 데이터 (서로 다른 시작 위치와 색상)
+            // 학생 초기 데이터
             const [students, setStudents] = useState([
                 { id: 1, name: '학생 1', color: '#2563eb', lat: 35.2456, lng: 128.6922, path: [], dir: { lat: 0.0002, lng: 0.0001 } },
                 { id: 2, name: '학생 2', color: '#dc2626', lat: 35.2460, lng: 128.6930, path: [], dir: { lat: -0.0001, lng: 0.0003 } },
@@ -63,9 +79,9 @@
             
             const [selectedStudentId, setSelectedStudentId] = useState(null);
             const mapRef = useRef(null);
-            const markersRef = useRef({}); // 학생 ID별 마커 객체 저장
-            const overlaysRef = useRef({}); // 학생 ID별 이름표 저장
-            const polylineRef = useRef(null); // 선택된 학생의 경로선
+            const markersRef = useRef({});
+            const overlaysRef = useRef({});
+            const polylineRef = useRef(null);
 
             // 카카오맵 초기화
             const initMap = () => {
@@ -81,8 +97,14 @@
                 const { data, error } = await supabase.from('t_user').select('*').eq('user_id', loginInfo.id).eq('user_pw', loginInfo.pw).single();
                 if (error || !data) return alert("로그인 실패");
                 
-                // 로그인 로그 기록
-                await supabase.from('t_login').insert([{ user_id: loginInfo.id, platform: 'Web', user_agent: navigator.userAgent }]);
+                // 한국 시간 기준으로 로그인 로그 기록 (시분초까지만)
+                const kstNow = getKSTTime();
+                await supabase.from('t_login').insert([{ 
+                    user_id: loginInfo.id, 
+                    platform: 'Web', 
+                    user_agent: navigator.userAgent,
+                    login_time: kstNow // DB 컬럼명에 맞춰 전달
+                }]);
                 
                 setUser(data);
                 setView('dashboard');
@@ -98,9 +120,7 @@
                         const nextLng = s.lng + s.dir.lng;
                         const nextPos = new window.kakao.maps.LatLng(nextLat, nextLng);
 
-                        // 마커 생성/업데이트
                         if (!markersRef.current[s.id]) {
-                            // 커스텀 마커 이미지 (색상별 원형)
                             const markerImg = `data:image/svg+xml;base64,${btoa(`
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <circle cx="12" cy="12" r="8" fill="${s.color}" stroke="white" stroke-width="3"/>
@@ -150,7 +170,6 @@
                             strokeStyle: 'dashed'
                         });
                         polylineRef.current.setMap(mapRef.current);
-                        // 선택된 학생 중심으로 지도 이동 (선택 시점에 한 번만 하려면 로직 분리 가능)
                     }
                 }
             }, [students, selectedStudentId]);
