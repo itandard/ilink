@@ -14,24 +14,34 @@
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
-        body { font-family: 'Pretendard', sans-serif; margin: 0; overflow: hidden; background-color: #f8fafc; }
-        #map { width: 100%; height: 100%; position: absolute; }
-        .student-marker-label {
-            position: relative; bottom: 55px; padding: 5px 10px; border-radius: 12px;
-            color: white; font-size: 11px; font-weight: 800; white-space: nowrap;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.2); border: 2px solid white; transform: translateX(-50%);
+        body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; background-color: #f8fafc; overflow: hidden; }
+        
+        /* 지도 컨테이너 스타일 강화 */
+        #map-container { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            right: 0; 
+            bottom: 0; 
+            width: 100%; 
+            height: 100%; 
         }
+        #map { 
+            width: 100%; 
+            height: 100%; 
+        }
+
         .login-bg {
             background-color: #f1f5f9;
             background-image: radial-gradient(at 0% 0%, rgba(30, 64, 175, 0.05) 0, transparent 50%), 
                               radial-gradient(at 100% 0%, rgba(30, 64, 175, 0.1) 0, transparent 50%);
         }
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-5px); }
-            75% { transform: translateX(5px); }
-        }
-        .animate-shake { animation: shake 0.3s ease-in-out; }
+
+        /* 스크롤바 커스텀 */
+        .custom-scroll::-webkit-scrollbar { width: 5px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
     </style>
 </head>
 <body>
@@ -40,7 +50,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // Supabase 설정
+        // Supabase Setup
         const SUPABASE_URL = "https://wedgzkwlkouheqfktskl.supabase.co"; 
         const SUPABASE_ANON_KEY = "sb_publishable_OY6cu-DKhs1QuXJUCu0g4g_YwsRZNc-"; 
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -51,7 +61,6 @@
             const [students, setStudents] = useState([]);
             const [loading, setLoading] = useState(false);
             
-            // 폼 데이터 상태
             const [authForm, setAuthForm] = useState({ id: '', pw: '' });
             const [regForm, setRegForm] = useState({ id: '', pw: '', name: '', school: '' });
             
@@ -59,23 +68,42 @@
 
             useEffect(() => {
                 if (window.lucide) window.lucide.createIcons();
+            }, [view]);
+
+            // 지도 초기화 및 크기 재조정 함수
+            useEffect(() => {
                 if (view === 'main') {
-                    initMap();
+                    // DOM이 확실히 렌더링된 후 지도를 호출하기 위해 setTimeout 사용
+                    const timer = setTimeout(() => {
+                        initMap();
+                    }, 100);
+                    return () => clearTimeout(timer);
                 }
             }, [view]);
 
             const initMap = () => {
-                if (window.kakao && window.kakao.maps) {
-                    const container = document.getElementById('map');
-                    const options = {
-                        center: new window.kakao.maps.LatLng(35.2456, 128.6922),
-                        level: 4
-                    };
+                const container = document.getElementById('map');
+                if (!container || !window.kakao) return;
+
+                const options = {
+                    center: new window.kakao.maps.LatLng(35.2456, 128.6922),
+                    level: 4
+                };
+                
+                // 기존 인스턴스가 있으면 relayout만 실행, 없으면 생성
+                if (!mapInstance.current) {
                     mapInstance.current = new window.kakao.maps.Map(container, options);
+                } else {
+                    mapInstance.current.relayout();
+                    mapInstance.current.setCenter(options.center);
                 }
+
+                // 창 크기 조절 시 지도 리아웃 대응
+                window.addEventListener('resize', () => {
+                    if (mapInstance.current) mapInstance.current.relayout();
+                });
             };
 
-            // 로그인 처리
             const handleLogin = async (e) => {
                 e.preventDefault();
                 setLoading(true);
@@ -94,6 +122,7 @@
                         return;
                     }
 
+                    // 로그인 기록 저장 (유지)
                     await supabase
                         .from('t_login')
                         .insert([{ 
@@ -107,13 +136,12 @@
                     setView('main');
                     fetchStudents();
                 } catch (err) {
-                    alert("로그인 중 오류가 발생했습니다.");
+                    alert("로그인 중 서버와 통신할 수 없습니다.");
                 } finally {
                     setLoading(false);
                 }
             };
 
-            // 회원가입 처리 (RPC 호출)
             const handleSignup = async (e) => {
                 e.preventDefault();
                 setLoading(true);
@@ -127,19 +155,15 @@
                     });
 
                     if (error) {
-                        if (error.message.includes('ALREADY_EXISTS')) {
-                            alert("이미 사용 중인 아이디입니다.");
-                        } else {
-                            alert("가입 실패: " + error.message);
-                        }
+                        alert(error.message.includes('ALREADY_EXISTS') ? "이미 사용 중인 아이디입니다." : "가입 실패: " + error.message);
                         return;
                     }
 
-                    alert("관리자 등록이 완료되었습니다! 이제 로그인해 주세요.");
+                    alert("관리자 등록이 완료되었습니다! 로그인해 주세요.");
                     setAuthForm({ id: regForm.id, pw: regForm.pw });
                     setView('login');
                 } catch (err) {
-                    alert("서버 통신 중 오류가 발생했습니다.");
+                    alert("통신 오류가 발생했습니다.");
                 } finally {
                     setLoading(false);
                 }
@@ -151,14 +175,13 @@
                     setStudents(data.map((s, idx) => ({
                         id: s.stu_no,
                         name: s.stu_name,
-                        color: ['#EF4444', '#3B82F6', '#10B981'][idx % 3],
+                        color: ['#3B82F6', '#10B981', '#F59E0B'][idx % 3],
                         lat: 35.2456 + (Math.random() * 0.002),
                         lng: 128.6922 + (Math.random() * 0.002)
                     })));
                 }
             };
 
-            // 로그인 화면
             if (view === 'login') {
                 return (
                     <div className="h-screen flex items-center justify-center login-bg px-6">
@@ -168,13 +191,13 @@
                                     <i data-lucide="shield-check" className="w-8 h-8"></i>
                                 </div>
                                 <h1 className="text-3xl font-black text-slate-900 tracking-tighter">아이-링크</h1>
-                                <p className="text-xs font-bold text-slate-400 mt-2 uppercase tracking-widest">Control System Login</p>
+                                <p className="text-[10px] font-extrabold text-blue-500 mt-2 uppercase tracking-widest">Control System Access</p>
                             </div>
                             <form onSubmit={handleLogin} className="space-y-4">
                                 <div className="relative">
                                     <i data-lucide="user" className="absolute left-4 top-4 w-5 h-5 text-slate-400"></i>
                                     <input 
-                                        className="w-full pl-12 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 transition-all text-sm font-semibold"
+                                        className="w-full pl-12 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-50 transition-all text-sm font-semibold"
                                         placeholder="관리자 아이디"
                                         value={authForm.id}
                                         onChange={e => setAuthForm({...authForm, id: e.target.value})}
@@ -185,7 +208,7 @@
                                     <i data-lucide="lock" className="absolute left-4 top-4 w-5 h-5 text-slate-400"></i>
                                     <input 
                                         type="password"
-                                        className="w-full pl-12 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 transition-all text-sm font-semibold"
+                                        className="w-full pl-12 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-50 transition-all text-sm font-semibold"
                                         placeholder="비밀번호"
                                         value={authForm.pw}
                                         onChange={e => setAuthForm({...authForm, pw: e.target.value})}
@@ -194,15 +217,15 @@
                                 </div>
                                 <button 
                                     disabled={loading}
-                                    className="w-full bg-blue-700 text-white font-bold py-4 rounded-2xl shadow-xl shadow-blue-100 active:scale-[0.98] hover:bg-blue-800 transition-all mt-4 flex items-center justify-center gap-2"
+                                    className="w-full bg-blue-600 text-white font-bold py-4 rounded-2xl shadow-xl shadow-blue-100 active:scale-[0.98] hover:bg-blue-700 transition-all mt-4 flex items-center justify-center gap-2"
                                 >
-                                    {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : "로그인"}
+                                    {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : "시스템 접속"}
                                 </button>
                             </form>
                             <div className="mt-8 pt-6 border-t border-slate-100 text-center">
                                 <button onClick={() => setView('signup')} className="text-blue-600 text-xs font-bold hover:underline flex items-center justify-center gap-1 w-full">
                                     <i data-lucide="user-plus" className="w-3 h-3"></i>
-                                    신규 관리자 계정 생성하기
+                                    신규 관리자 등록하기
                                 </button>
                             </div>
                         </div>
@@ -210,26 +233,25 @@
                 );
             }
 
-            // 회원가입 화면
             if (view === 'signup') {
                 return (
                     <div className="h-screen flex items-center justify-center login-bg px-6">
                         <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-[400px] border border-slate-100">
                             <div className="mb-8 text-center">
-                                <h2 className="text-2xl font-black text-slate-900 tracking-tight">관리자 등록</h2>
-                                <p className="text-xs font-bold text-slate-400 mt-1">Create Admin Account</p>
+                                <h2 className="text-2xl font-black text-slate-900 tracking-tight">신규 등록</h2>
+                                <p className="text-xs font-bold text-blue-500 mt-1 uppercase tracking-wider">Create Admin Account</p>
                             </div>
                             <form onSubmit={handleSignup} className="space-y-3">
                                 <input 
                                     placeholder="성함" 
-                                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all text-sm font-semibold"
+                                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-600 transition-all text-sm font-semibold"
                                     value={regForm.name}
                                     onChange={e => setRegForm({...regForm, name: e.target.value})}
                                     required
                                 />
                                 <input 
                                     placeholder="아이디" 
-                                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all text-sm font-semibold"
+                                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-600 transition-all text-sm font-semibold"
                                     value={regForm.id}
                                     onChange={e => setRegForm({...regForm, id: e.target.value})}
                                     required
@@ -237,50 +259,49 @@
                                 <input 
                                     type="password"
                                     placeholder="비밀번호" 
-                                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all text-sm font-semibold"
+                                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-600 transition-all text-sm font-semibold"
                                     value={regForm.pw}
                                     onChange={e => setRegForm({...regForm, pw: e.target.value})}
                                     required
                                 />
                                 <input 
-                                    placeholder="소속 학교" 
-                                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all text-sm font-semibold"
+                                    placeholder="소속 기관/학교" 
+                                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-600 transition-all text-sm font-semibold"
                                     value={regForm.school}
                                     onChange={e => setRegForm({...regForm, school: e.target.value})}
                                     required
                                 />
                                 <button 
                                     disabled={loading}
-                                    className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl shadow-lg active:scale-[0.98] hover:bg-black transition-all mt-4 flex items-center justify-center gap-2"
+                                    className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-100 active:scale-[0.98] hover:bg-blue-700 transition-all mt-4 flex items-center justify-center gap-2"
                                 >
-                                    {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : "계정 생성하기"}
+                                    {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : "계정 생성 및 승인"}
                                 </button>
                             </form>
-                            <button onClick={() => setView('login')} className="mt-6 w-full text-slate-400 text-xs font-bold hover:text-slate-600 transition-all">
-                                이미 계정이 있나요? 로그인
+                            <button onClick={() => setView('login')} className="mt-6 w-full text-slate-400 text-xs font-bold hover:text-blue-600 transition-all">
+                                돌아가기
                             </button>
                         </div>
                     </div>
                 );
             }
 
-            // 메인 관제 화면
             return (
-                <div className="h-screen flex flex-col">
-                    <header className="h-16 bg-white border-b flex items-center justify-between px-8 shadow-sm z-50">
+                <div className="h-screen flex flex-col overflow-hidden">
+                    <header className="h-16 bg-white border-b flex items-center justify-between px-8 shadow-sm z-[2000] shrink-0">
                         <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
+                            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-md shadow-blue-100">
                                 <i data-lucide="activity" className="w-5 h-5"></i>
                             </div>
-                            <h2 className="font-black text-lg tracking-tight text-slate-800">아이-링크 관제</h2>
+                            <h2 className="font-black text-lg tracking-tight text-slate-800 uppercase">Eye-Link</h2>
                         </div>
                         <div className="flex items-center gap-6">
-                            <div className="flex items-center gap-3">
+                            <div className="hidden md:flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200">
                                     <i data-lucide="user" className="w-4 h-4 text-slate-600"></i>
                                 </div>
                                 <div className="flex flex-col -space-y-1">
-                                    <span className="text-xs font-bold text-slate-400">{user?.user_school}</span>
+                                    <span className="text-[10px] font-bold text-blue-500">{user?.user_school}</span>
                                     <span className="text-sm font-bold text-slate-700">{user?.user_name} 관리자</span>
                                 </div>
                             </div>
@@ -293,26 +314,37 @@
                             </button>
                         </div>
                     </header>
-                    <div className="flex-1 relative">
-                        <div id="map"></div>
-                        <aside className="absolute left-6 top-6 bottom-6 w-72 bg-white/90 backdrop-blur-md shadow-2xl rounded-[2rem] z-[1000] p-6 border border-white/50 flex flex-col">
-                            <div className="flex items-center justify-between mb-6">
-                                <h3 className="font-black text-sm text-slate-800">실시간 위치 정보</h3>
-                                <span className="px-2 py-1 bg-emerald-100 text-emerald-600 text-[10px] font-bold rounded-md animate-pulse">LIVE</span>
+                    <div className="flex-1 relative overflow-hidden">
+                        {/* 지도 컨테이너를 절대 위치로 고정하여 크기 확보 */}
+                        <div id="map-container">
+                            <div id="map"></div>
+                        </div>
+
+                        {/* 좌측 사이드바 */}
+                        <aside className="absolute left-6 top-6 bottom-6 w-72 bg-white/90 backdrop-blur-md shadow-2xl rounded-[2.5rem] z-[1000] p-6 border border-white/50 flex flex-col">
+                            <div className="flex items-center justify-between mb-6 shrink-0">
+                                <h3 className="font-black text-sm text-slate-800">학생 실시간 모니터링</h3>
+                                <span className="px-2 py-1 bg-emerald-100 text-emerald-600 text-[10px] font-black rounded-md animate-pulse">ACTIVE</span>
                             </div>
-                            <div className="flex-1 space-y-3 overflow-y-auto pr-2">
-                                {students.map(s => (
-                                    <div key={s.id} className="p-4 bg-white/60 border border-slate-100 rounded-2xl flex items-center gap-4 hover:bg-white hover:shadow-md transition-all cursor-pointer group">
-                                        <div className="relative">
-                                            <div className="w-3 h-3 rounded-full shadow-sm" style={{backgroundColor: s.color}}></div>
-                                            <div className="absolute inset-0 w-3 h-3 rounded-full animate-ping opacity-20" style={{backgroundColor: s.color}}></div>
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className="text-sm font-bold text-slate-800 group-hover:text-blue-600">{s.name}</span>
-                                            <span className="text-[10px] font-medium text-slate-400">{s.id}</span>
-                                        </div>
+                            <div className="flex-1 space-y-3 overflow-y-auto pr-2 custom-scroll">
+                                {students.length === 0 ? (
+                                    <div className="text-center py-10">
+                                        <p className="text-xs text-slate-400 font-medium font-bold">학생 데이터를<br/>불러오는 중...</p>
                                     </div>
-                                ))}
+                                ) : (
+                                    students.map(s => (
+                                        <div key={s.id} className="p-4 bg-white/60 border border-slate-100 rounded-2xl flex items-center gap-4 hover:bg-white hover:shadow-md transition-all cursor-pointer group border-l-4" style={{borderLeftColor: s.color}}>
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-bold text-slate-800 group-hover:text-blue-600">{s.name}</span>
+                                                <span className="text-[10px] font-medium text-slate-400 uppercase tracking-tighter">{s.id}</span>
+                                            </div>
+                                            <i data-lucide="chevron-right" className="ml-auto w-4 h-4 text-slate-300 group-hover:text-blue-400 transition-colors"></i>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                            <div className="mt-6 pt-4 border-t border-slate-100 shrink-0 text-center">
+                                <p className="text-[10px] text-slate-400 font-bold">© 2024 EYE-LINK SYSTEM</p>
                             </div>
                         </aside>
                     </div>
