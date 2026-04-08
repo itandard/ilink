@@ -55,6 +55,15 @@
             border-radius: 50%;
             box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
         }
+
+        @keyframes pulse-red {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.5); opacity: 0.5; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .status-alert {
+            animation: pulse-red 2s infinite;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
@@ -80,10 +89,10 @@
             const [isProcessing, setIsProcessing] = useState(false);
             
             const [students] = useState([
-                { stu_no: 1, stu_name: '김민수', status: '정상' },
-                { stu_no: 2, stu_name: '이서연', status: '주의' },
-                { stu_no: 3, stu_name: '박준혁', status: '정상' },
-                { stu_no: 4, stu_name: '최다인', status: '미감지' }
+                { stu_no: 1, stu_name: '김민수', status: '정상', last_pos: '교문 통과' },
+                { stu_no: 2, stu_name: '이서연', status: '주의', last_pos: '경로 이탈 의심' },
+                { stu_no: 3, stu_name: '박준혁', status: '정상', last_pos: '교실 입실' },
+                { stu_no: 4, stu_name: '최다인', status: '미감지', last_pos: '확인 불가' }
             ]);
             const [selectedStudent, setSelectedStudent] = useState(null);
             
@@ -94,14 +103,12 @@
             const overlayRef = useRef(null);
             const simIntervalRef = useRef(null);
 
-            // Canvas의 SQL 로직에 맞춘 플랫폼 감지 함수
             const getPlatform = () => {
                 const ua = navigator.userAgent;
                 if (/ipad|iphone|ipod/i.test(ua)) return "iOS";
                 if (/android/i.test(ua)) return "Android";
                 if (/win/i.test(ua)) return "Windows";
                 if (/mac/i.test(ua)) return "Mac OS";
-                if (/linux/i.test(ua)) return "Linux";
                 return "기타 PC";
             };
 
@@ -114,13 +121,11 @@
                 mapRef.current = map;
             };
 
-            // 로그인 및 t_login 기록 핸들러
             const handleLogin = async (e) => {
                 e.preventDefault();
                 setIsProcessing(true);
 
                 try {
-                    // 1. t_user 테이블에서 계정 정보 확인
                     const { data: userData, error: userError } = await supabase
                         .from('t_user')
                         .select('*')
@@ -134,39 +139,78 @@
                         return;
                     }
 
-                    // 2. t_login 테이블에 로그인 로그 삽입 (Canvas에 작성된 SQL 구조 활용)
                     const platform = getPlatform();
-                    const { error: logError } = await supabase
-                        .from('t_login')
-                        .insert([{
-                            user_id: loginInfo.id,
-                            platform: platform,
-                            user_agent: navigator.userAgent
-                        }]);
+                    await supabase.from('t_login').insert([{
+                        user_id: loginInfo.id,
+                        platform: platform,
+                        user_agent: navigator.userAgent
+                    }]);
 
-                    if (logError) {
-                        console.error("로그 기록 실패:", logError.message);
-                    }
-
-                    // 3. 앱 상태 업데이트
                     setUser(userData);
                     setView('dashboard');
-
                 } catch (err) {
-                    console.error("오류 발생:", err);
                     alert("시스템 오류가 발생했습니다.");
                 } finally {
                     setIsProcessing(false);
                 }
             };
 
+            const clearSimulation = () => {
+                if (simIntervalRef.current) clearInterval(simIntervalRef.current);
+                if (mainMarkerRef.current) mainMarkerRef.current.setMap(null);
+                if (polylineRef.current) polylineRef.current.setMap(null);
+                if (overlayRef.current) overlayRef.current.setMap(null);
+                pathMarkersRef.current.forEach(m => m.setMap(null));
+                pathMarkersRef.current = [];
+            };
+
             const startSimulation = (student) => {
                 if (!mapRef.current) return;
+                clearSimulation();
+                setSelectedStudent(student);
+
                 const startLat = 35.2456;
                 const startLng = 128.6922;
-                const initialPos = new window.kakao.maps.LatLng(startLat, startLng);
-                mapRef.current.panTo(initialPos);
-                // 시뮬레이션 상세 로직 생략 (기존과 동일)
+                const path = [];
+                
+                // 가상 경로 생성
+                for(let i=0; i<10; i++) {
+                    path.push(new window.kakao.maps.LatLng(startLat + (i * 0.0005), startLng + (i * 0.0003)));
+                }
+
+                polylineRef.current = new window.kakao.maps.Polyline({
+                    path: path,
+                    strokeWeight: 5,
+                    strokeColor: '#2563eb',
+                    strokeOpacity: 0.7,
+                    strokeStyle: 'solid'
+                });
+                polylineRef.current.setMap(mapRef.current);
+
+                mainMarkerRef.current = new window.kakao.maps.Marker({
+                    position: path[0],
+                    map: mapRef.current
+                });
+
+                overlayRef.current = new window.kakao.maps.CustomOverlay({
+                    position: path[0],
+                    content: `<div class="custom-overlay">${student.stu_name} 학생 이동 중</div>`,
+                    yAnchor: 1
+                });
+                overlayRef.current.setMap(mapRef.current);
+
+                let step = 0;
+                simIntervalRef.current = setInterval(() => {
+                    if (step >= path.length) {
+                        clearInterval(simIntervalRef.current);
+                        return;
+                    }
+                    const currentPos = path[step];
+                    mainMarkerRef.current.setPosition(currentPos);
+                    overlayRef.current.setPosition(currentPos);
+                    mapRef.current.panTo(currentPos);
+                    step++;
+                }, 1000);
             };
 
             useEffect(() => {
@@ -182,7 +226,7 @@
                                     <LucideIcon name="eye" size={32} />
                                 </div>
                                 <h2 className="text-3xl font-black text-slate-900 tracking-tighter mb-2">아이-링크</h2>
-                                <p className="text-slate-400 text-sm font-medium tracking-tight">통합 안전 관제 시스템</p>
+                                <p className="text-slate-400 text-sm font-medium tracking-tight text-center">통합 안전 관제 시스템</p>
                             </div>
                             <form onSubmit={handleLogin} className="space-y-4">
                                 <div className="space-y-1">
@@ -223,12 +267,19 @@
 
             return (
                 <div className="h-screen flex flex-col bg-white overflow-hidden">
-                    <header className="h-16 border-b border-slate-200 flex items-center justify-between px-6 bg-white shrink-0 z-30">
+                    <header className="h-16 border-b border-slate-200 flex items-center justify-between px-6 bg-white shrink-0 z-30 shadow-sm">
                         <div className="flex items-center gap-2">
                             <div className="bg-blue-600 p-1.5 rounded-lg text-white">
                                 <LucideIcon name="eye" size={16} />
                             </div>
                             <span className="font-black text-slate-900 tracking-tighter text-xl italic uppercase">Eye-Link</span>
+                        </div>
+                        <div className="hidden md:flex items-center gap-8">
+                            <div className="flex items-center gap-6 text-[13px] font-bold text-slate-500">
+                                <span className="text-blue-600 border-b-2 border-blue-600 py-5">실시간 관제</span>
+                                <span className="hover:text-slate-800 cursor-pointer">기록 조회</span>
+                                <span className="hover:text-slate-800 cursor-pointer">통계 분석</span>
+                            </div>
                         </div>
                         <div className="flex items-center gap-4">
                             <div className="text-right">
@@ -240,8 +291,79 @@
                             </button>
                         </div>
                     </header>
-                    <div className="flex-1 relative">
-                        <div id="map" className="w-full h-full"></div>
+
+                    <div className="flex-1 flex overflow-hidden">
+                        {/* 왼쪽 사이드바: 학생 목록 */}
+                        <aside className="w-80 border-r border-slate-200 flex flex-col bg-white shrink-0 z-20">
+                            <div className="p-5 border-b border-slate-100 bg-slate-50/50">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="font-black text-slate-900 flex items-center gap-2">
+                                        <LucideIcon name="users" size={18} className="text-blue-600" />
+                                        관제 대상
+                                    </h3>
+                                    <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full uppercase">Live</span>
+                                </div>
+                                <div className="relative">
+                                    <LucideIcon name="search" size={14} className="absolute left-3 top-3 text-slate-400" />
+                                    <input className="w-full bg-white border border-slate-200 rounded-xl py-2.5 pl-9 pr-4 text-xs outline-none focus:ring-2 focus:ring-blue-600 transition-all" placeholder="학생 이름 검색..." />
+                                </div>
+                            </div>
+                            
+                            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                                {students.map((stu) => (
+                                    <div 
+                                        key={stu.stu_no}
+                                        onClick={() => startSimulation(stu)}
+                                        className={`p-4 rounded-2xl border transition-all cursor-pointer group ${selectedStudent?.stu_no === stu.stu_no ? 'border-blue-600 bg-blue-50/50 shadow-md shadow-blue-50' : 'border-slate-100 hover:border-blue-300 hover:bg-slate-50'}`}
+                                    >
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="font-bold text-sm text-slate-900">{stu.stu_name}</span>
+                                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                                                stu.status === '정상' ? 'bg-emerald-100 text-emerald-600' :
+                                                stu.status === '주의' ? 'bg-amber-100 text-amber-600 status-alert' : 'bg-slate-100 text-slate-500'
+                                            }`}>
+                                                {stu.status}
+                                            </span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-400 font-medium truncate italic">최근: {stu.last_pos}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </aside>
+
+                        {/* 메인: 지도 영역 */}
+                        <div className="flex-1 relative">
+                            <div id="map" className="w-full h-full"></div>
+                            
+                            {/* 상단 오버레이 카드 */}
+                            <div className="absolute top-6 left-6 right-6 z-10 flex gap-4 overflow-x-auto pb-4 no-scrollbar">
+                                <div className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-white min-w-[160px] flex-1">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase mb-1">전체 학생</p>
+                                    <h4 className="text-xl font-black text-slate-900 tracking-tighter">1,248 <span className="text-xs font-medium text-slate-400">명</span></h4>
+                                </div>
+                                <div className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-white min-w-[160px] flex-1">
+                                    <p className="text-[10px] font-black text-rose-500 uppercase mb-1">이탈 감지</p>
+                                    <h4 className="text-xl font-black text-rose-600 tracking-tighter">03 <span className="text-xs font-medium text-slate-400">명</span></h4>
+                                </div>
+                                <div className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-white min-w-[160px] flex-1">
+                                    <p className="text-[10px] font-black text-emerald-500 uppercase mb-1">등교 완료</p>
+                                    <h4 className="text-xl font-black text-emerald-600 tracking-tighter">98 <span className="text-xs font-medium text-slate-400">%</span></h4>
+                                </div>
+                            </div>
+
+                            {/* 우측 하단 컨트롤 */}
+                            <div className="absolute bottom-8 right-8 z-10 flex flex-col gap-2">
+                                <button className="w-12 h-12 bg-white rounded-2xl shadow-2xl border border-slate-100 flex items-center justify-center text-slate-600 hover:text-blue-600 transition-all hover:scale-110 active:scale-95">
+                                    <LucideIcon name="plus" size={20} />
+                                </button>
+                                <button className="w-12 h-12 bg-white rounded-2xl shadow-2xl border border-slate-100 flex items-center justify-center text-slate-600 hover:text-blue-600 transition-all hover:scale-110 active:scale-95">
+                                    <LucideIcon name="minus" size={20} />
+                                </button>
+                                <button className="w-12 h-12 bg-blue-600 rounded-2xl shadow-2xl flex items-center justify-center text-white hover:bg-blue-700 transition-all hover:scale-110 active:scale-95 mt-2">
+                                    <LucideIcon name="navigation" size={20} />
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             );
