@@ -17,28 +17,37 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;900&display=swap');
         body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; overflow: hidden; }
-        #map { width: 100%; height: 100%; background-color: #f8fafc; touch-action: none; }
-        .info-window {
-            padding: 10px;
+        #map { width: 100%; height: 100%; background-color: #f1f5f9; }
+        
+        /* 커스텀 오버레이 스타일 (렉 유발 방지를 위해 단순화 및 최적화) */
+        .custom-overlay {
+            position: relative;
+            bottom: 50px;
+            border-radius: 12px;
+            background: #1e293b;
+            color: white;
+            padding: 8px 14px;
             font-size: 12px;
-            line-height: 1.5;
-            font-family: 'Pretendard', sans-serif;
-            border-radius: 8px;
-            background: white;
-            border: 1px solid #e2e8f0;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            font-weight: 600;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+            white-space: nowrap;
+            pointer-events: none;
         }
-        .input-focus {
-            transition: all 0.2s ease-in-out;
+        .custom-overlay::after {
+            content: '';
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 6px 6px 0;
+            border-style: solid;
+            border-color: #1e293b transparent transparent;
         }
-        .input-focus:focus {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.1);
+
+        /* 휠 스크롤 성능 향상 */
+        .kakao-map-container div {
+            transition: none !important; /* 애니메이션 충돌 방지 */
         }
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
@@ -66,27 +75,21 @@
             const mapRef = useRef(null);
             const markerRef = useRef(null);
             const polylineRef = useRef(null);
-            const infoWindowRef = useRef(null);
+            const overlayRef = useRef(null);
             const pathPointsRef = useRef([]); 
 
-            const [loginData, setLoginData] = useState({ userId: '', password: '' });
-            const [signupData, setSignupData] = useState({ userId: '', password: '', name: '', school: '' });
             const [gpsInput, setGpsInput] = useState({ lat: '35.190360', lng: '128.815600' });
             const [isSending, setIsSending] = useState(false);
+            const [loginData, setLoginData] = useState({ userId: '', password: '' });
+            const [signupData, setSignupData] = useState({ userId: '', password: '', name: '', school: '' });
 
-            // 학생 정보 불러오기 개선
             const fetchStudents = async () => {
                 setLoadingStudents(true);
                 try {
-                    const { data, error } = await supabase
-                        .from('t_student')
-                        .select('*')
-                        .order('stu_no', { ascending: true });
-                    
-                    if (error) throw error;
+                    const { data, error } = await supabase.from('t_student').select('*').order('stu_no', { ascending: true });
                     if (data) setStudents(data);
                 } catch (err) {
-                    console.error("학생 목록 로드 실패:", err.message);
+                    console.error("학생 로드 실패:", err);
                 } finally {
                     setLoadingStudents(false);
                 }
@@ -104,13 +107,12 @@
                     const options = { 
                         center: initialPos, 
                         level: 3,
-                        scrollwheel: true // 휠 줌 명시적 허용
+                        scrollwheel: true,
+                        speed: 10 // 줌 속도 조절
                     };
                     
                     const map = new window.kakao.maps.Map(container, options);
-                    
-                    // 휠 줌 및 확대/축소 기능 활성화 확인
-                    map.setZoomable(true);
+                    map.setCopyrightPosition(window.kakao.maps.ControlPosition.BOTTOMRIGHT, true);
                     mapRef.current = map;
                     
                     const marker = new window.kakao.maps.Marker({ position: initialPos });
@@ -119,44 +121,41 @@
 
                     const polyline = new window.kakao.maps.Polyline({
                         path: [initialPos],
-                        strokeWeight: 5,
-                        strokeColor: '#4f46e5',
-                        strokeOpacity: 0.7,
+                        strokeWeight: 4,
+                        strokeColor: '#6366f1',
+                        strokeOpacity: 0.8,
                         strokeStyle: 'solid'
                     });
                     polyline.setMap(map);
                     polylineRef.current = polyline;
                     pathPointsRef.current = [initialPos];
 
-                    const infowindow = new window.kakao.maps.InfoWindow({ zIndex: 1 });
-                    infoWindowRef.current = infowindow;
+                    // 말풍선 오버레이 생성 (필요할 때만 업데이트)
+                    const overlay = new window.kakao.maps.CustomOverlay({
+                        position: initialPos,
+                        content: `<div class="custom-overlay">위치 추적 중</div>`,
+                        yAnchor: 1
+                    });
+                    overlay.setMap(map);
+                    overlayRef.current = overlay;
 
-                    window.kakao.maps.event.addListener(map, 'mousemove', (mouseEvent) => {
+                    // 맵 클릭 시 좌표 자동 입력 기능 (편의용)
+                    window.kakao.maps.event.addListener(map, 'click', (mouseEvent) => {
                         const latlng = mouseEvent.latLng;
-                        infowindow.setContent(`
-                            <div class="info-window">
-                                <div style="font-weight:bold; color:#4f46e5; margin-bottom:4px;">실시간 위치 좌표</div>
-                                <div>위도: ${latlng.getLat().toFixed(6)}</div>
-                                <div>경도: ${latlng.getLng().toFixed(6)}</div>
-                            </div>
-                        `);
-                        infowindow.setPosition(latlng);
-                        infowindow.open(map);
+                        setGpsInput({
+                            lat: latlng.getLat().toFixed(6),
+                            lng: latlng.getLng().toFixed(6)
+                        });
                     });
                     
-                    window.kakao.maps.event.addListener(map, 'mouseout', () => infowindow.close());
-                    
-                    // 브라우저 리사이즈 대응
                     window.addEventListener('resize', () => map.relayout());
                 });
-            }, [gpsInput.lat, gpsInput.lng]);
+            }, []);
 
             useEffect(() => {
                 if (view === 'dashboard') {
                     fetchStudents();
-                    // DOM 렌더링 시간을 고려한 지연 실행
-                    const timer = setTimeout(initMap, 200);
-                    return () => clearTimeout(timer);
+                    setTimeout(initMap, 100);
                 }
             }, [view, initMap]);
 
@@ -166,8 +165,14 @@
                 const newLng = parseFloat(gpsInput.lng);
                 const newPos = new window.kakao.maps.LatLng(newLat, newLng);
 
+                // 부드러운 이동
                 mapRef.current.panTo(newPos);
                 markerRef.current.setPosition(newPos);
+                
+                // 오버레이 내용 및 위치 갱신
+                overlayRef.current.setPosition(newPos);
+                overlayRef.current.setContent(`<div class="custom-overlay">${newLat.toFixed(4)}, ${newLng.toFixed(4)}</div>`);
+
                 const newPath = [...pathPointsRef.current, newPos];
                 pathPointsRef.current = newPath;
                 polylineRef.current.setPath(newPath);
@@ -181,7 +186,7 @@
                         user_id: user?.user_id 
                     }]);
                 } catch(e) {
-                    console.error("데이터 전송 오류:", e);
+                    console.error("전송 오류:", e);
                 } finally {
                     setIsSending(false);
                 }
@@ -191,37 +196,36 @@
                 e.preventDefault();
                 const { data } = await supabase.from('t_user').select('*').eq('user_id', loginData.userId).eq('user_pw', loginData.password).maybeSingle();
                 if (data) { setUser(data); setView('dashboard'); } 
-                else { alert("정보가 일치하지 않습니다."); }
+                else { alert("아이디 또는 비밀번호를 확인하세요."); }
             };
 
             const handleSignup = async (e) => {
                 e.preventDefault();
-                const { data, error } = await supabase.rpc('fn_insert_user', {
+                const { error } = await supabase.rpc('fn_insert_user', {
                     p_user_id: signupData.userId,
                     p_user_pw: signupData.password,
                     p_user_name: signupData.name,
                     p_user_school: signupData.school
                 });
-                if (error) alert("이미 존재하는 아이디입니다.");
-                else { alert("가입 완료!"); setView('login'); }
+                if (error) alert("이미 가입된 아이디입니다.");
+                else { alert("가입 완료되었습니다."); setView('login'); }
             };
 
             if (view === 'login') {
                 return (
-                    <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5] p-4">
-                        <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md border border-slate-100">
+                    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
+                        <div className="bg-white p-10 rounded-[2rem] shadow-xl w-full max-w-md">
                             <div className="text-center mb-10">
-                                <div className="inline-flex p-4 bg-indigo-50 rounded-3xl text-indigo-600 mb-4">
-                                    <LucideIcon name="shield-check" size={32} />
+                                <div className="inline-block p-4 bg-indigo-600 rounded-2xl text-white mb-4">
+                                    <LucideIcon name="activity" size={32} />
                                 </div>
-                                <h2 className="text-3xl font-black text-slate-800 tracking-tight">GPS 관제 시스템</h2>
-                                <p className="text-slate-400 text-sm mt-2">관리자 계정으로 로그인하세요</p>
+                                <h2 className="text-2xl font-black text-slate-800 tracking-tight">GPS Admin Login</h2>
                             </div>
                             <form onSubmit={handleLogin} className="space-y-4">
-                                <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 input-focus" placeholder="아이디" value={loginData.userId} onChange={(e) => setLoginData({...loginData, userId: e.target.value})} required />
-                                <input type="password" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 input-focus" placeholder="비밀번호" value={loginData.password} onChange={(e) => setLoginData({...loginData, password: e.target.value})} required />
-                                <button className="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl hover:bg-indigo-700 transition-all shadow-lg active:scale-95">로그인</button>
-                                <button type="button" onClick={() => setView('signup')} className="w-full text-slate-400 text-sm font-semibold py-2 hover:text-indigo-600">신규 관리자 등록하기</button>
+                                <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="아이디" value={loginData.userId} onChange={(e) => setLoginData({...loginData, userId: e.target.value})} required />
+                                <input type="password" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="비밀번호" value={loginData.password} onChange={(e) => setLoginData({...loginData, password: e.target.value})} required />
+                                <button className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl hover:bg-black transition-all active:scale-95 shadow-lg">접속하기</button>
+                                <button type="button" onClick={() => setView('signup')} className="w-full text-slate-400 text-sm font-semibold py-2">신규 등록</button>
                             </form>
                         </div>
                     </div>
@@ -230,15 +234,15 @@
 
             if (view === 'signup') {
                 return (
-                    <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5] p-4">
-                        <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md border border-slate-100">
-                            <h2 className="text-2xl font-black text-slate-800 mb-8 text-center">관리자 계정 생성</h2>
+                    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
+                        <div className="bg-white p-10 rounded-[2rem] shadow-xl w-full max-w-md">
+                            <h2 className="text-2xl font-black text-slate-800 mb-8 text-center">관리자 등록</h2>
                             <form onSubmit={handleSignup} className="space-y-4">
-                                <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="이름" onChange={(e) => setSignupData({...signupData, name: e.target.value})} required />
-                                <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="아이디" onChange={(e) => setSignupData({...signupData, userId: e.target.value})} required />
-                                <input type="password" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="비밀번호" onChange={(e) => setSignupData({...signupData, password: e.target.value})} required />
-                                <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="소속 학교" onChange={(e) => setSignupData({...signupData, school: e.target.value})} required />
-                                <button className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl mt-4 hover:bg-black transition-all shadow-xl active:scale-95">가입하기</button>
+                                <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="이름" onChange={(e) => setSignupData({...signupData, name: e.target.value})} required />
+                                <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="아이디" onChange={(e) => setSignupData({...signupData, userId: e.target.value})} required />
+                                <input type="password" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="비밀번호" onChange={(e) => setSignupData({...signupData, password: e.target.value})} required />
+                                <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="소속 학교" onChange={(e) => setSignupData({...signupData, school: e.target.value})} required />
+                                <button className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl mt-4 hover:bg-indigo-700 transition-all active:scale-95 shadow-lg">가입 완료</button>
                                 <button type="button" onClick={() => setView('login')} className="w-full text-slate-400 text-sm font-semibold py-2">뒤로 가기</button>
                             </form>
                         </div>
@@ -247,106 +251,91 @@
             }
 
             return (
-                <div className="h-screen flex flex-col overflow-hidden bg-white">
-                    <header className="h-16 border-b border-slate-200 flex items-center justify-between px-6 bg-white z-20 shadow-sm shrink-0">
+                <div className="h-screen flex flex-col bg-white overflow-hidden">
+                    {/* Header */}
+                    <header className="h-14 border-b border-slate-200 flex items-center justify-between px-6 bg-white shrink-0 z-30">
                         <div className="flex items-center gap-2">
                             <div className="bg-indigo-600 p-1.5 rounded-lg text-white">
-                                <LucideIcon name="map-pin" size={18} />
+                                <LucideIcon name="navigation" size={16} />
                             </div>
-                            <h1 className="font-black text-slate-800 tracking-tighter text-lg uppercase">GPS Control</h1>
+                            <span className="font-black text-slate-800 tracking-tight">GPS LIVE</span>
                         </div>
                         <div className="flex items-center gap-4">
-                            <div className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full uppercase">
+                            <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full">
                                 {user?.user_school} · {user?.user_name}
-                            </div>
+                            </span>
                             <button onClick={() => setView('login')} className="text-slate-300 hover:text-rose-500 transition-colors">
-                                <LucideIcon name="log-out" size={20} />
+                                <LucideIcon name="log-out" size={18} />
                             </button>
                         </div>
                     </header>
 
                     <div className="flex-1 flex overflow-hidden">
-                        {/* Left Sidebar: Student List */}
-                        <aside className="w-72 border-r border-slate-200 bg-slate-50 flex flex-col z-10 shrink-0">
-                            <div className="p-4 border-b border-slate-200 bg-white">
-                                <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">관리 학생 목록</h2>
+                        {/* Sidebar */}
+                        <aside className="w-64 border-r border-slate-100 flex flex-col shrink-0 bg-white z-20">
+                            <div className="p-4 border-b border-slate-50">
+                                <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">Target List</h2>
                                 <div className="relative">
-                                    <LucideIcon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                    <input className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500" placeholder="학생 검색..." />
+                                    <LucideIcon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                                    <input className="w-full pl-9 pr-4 py-2 bg-slate-50 rounded-xl text-xs outline-none focus:ring-1 focus:ring-indigo-300" placeholder="학생 이름 검색..." />
                                 </div>
                             </div>
-                            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                            <div className="flex-1 overflow-y-auto p-2 space-y-1">
                                 {loadingStudents ? (
-                                    <div className="flex flex-col items-center justify-center py-10 gap-2">
-                                        <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                                        <p className="text-xs text-slate-400 font-medium">학생 목록 로딩 중...</p>
-                                    </div>
-                                ) : students.length > 0 ? (
-                                    students.map(student => (
-                                        <button 
-                                            key={student.stu_no}
-                                            onClick={() => setSelectedStudent(student)}
-                                            className={`w-full flex items-center gap-3 p-3 rounded-2xl transition-all border ${selectedStudent?.stu_no === student.stu_no ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100 scale-[1.02]' : 'bg-white border-slate-100 hover:border-indigo-200 text-slate-600'}`}
-                                        >
-                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold shrink-0 ${selectedStudent?.stu_no === student.stu_no ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-600'}`}>
-                                                {student.stu_name.substring(0,1)}
-                                            </div>
-                                            <div className="text-left overflow-hidden">
-                                                <div className="text-sm font-bold leading-tight truncate">{student.stu_name}</div>
-                                                <div className={`text-[10px] font-medium ${selectedStudent?.stu_no === student.stu_no ? 'text-indigo-100' : 'text-slate-400'}`}>학번: {student.stu_no}</div>
-                                            </div>
-                                        </button>
-                                    ))
-                                ) : (
-                                    <div className="text-center py-10">
-                                        <p className="text-xs text-slate-400">등록된 학생이 없습니다.</p>
-                                    </div>
-                                )}
+                                    <div className="p-10 text-center"><div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto"></div></div>
+                                ) : students.map(s => (
+                                    <button 
+                                        key={s.stu_no}
+                                        onClick={() => setSelectedStudent(s)}
+                                        className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${selectedStudent?.stu_no === s.stu_no ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200' : 'hover:bg-slate-50 text-slate-600'}`}
+                                    >
+                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-black shrink-0 ${selectedStudent?.stu_no === s.stu_no ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                                            {s.stu_name.substring(0,1)}
+                                        </div>
+                                        <div className="text-left">
+                                            <div className="text-xs font-bold">{s.stu_name}</div>
+                                            <div className="text-[9px] opacity-60">ID: {s.stu_no}</div>
+                                        </div>
+                                    </button>
+                                ))}
                             </div>
                         </aside>
 
-                        {/* Main Map View */}
-                        <main className="flex-1 relative bg-slate-100">
+                        {/* Map Container */}
+                        <main className="flex-1 relative">
                             <div id="map" className="w-full h-full"></div>
                             
-                            {/* Selected Student HUD */}
+                            {/* Selected Info HUD */}
                             {selectedStudent && (
-                                <div className="absolute top-6 left-6 z-20">
-                                    <div className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-white/50 flex items-center gap-4 animate-in fade-in slide-in-from-left-4 duration-300">
-                                        <div className="p-3 bg-indigo-600 rounded-xl text-white">
-                                            <LucideIcon name="user" size={20} />
-                                        </div>
-                                        <div>
-                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Live Tracking</div>
-                                            <div className="text-lg font-black text-slate-800">{selectedStudent.stu_name} 관찰 중</div>
-                                        </div>
-                                        <button onClick={() => setSelectedStudent(null)} className="ml-2 text-slate-400 hover:text-slate-600">
-                                            <LucideIcon name="x" size={16} />
-                                        </button>
+                                <div className="absolute top-4 left-4 z-10">
+                                    <div className="bg-white p-3 rounded-2xl shadow-xl border border-slate-200 flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+                                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                                        <span className="text-xs font-bold text-slate-700">{selectedStudent.stu_name} 실시간 추적 중</span>
+                                        <button onClick={() => setSelectedStudent(null)} className="text-slate-300 hover:text-slate-500"><LucideIcon name="x" size={14} /></button>
                                     </div>
                                 </div>
                             )}
 
                             {/* Control Pad */}
-                            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 w-full max-w-lg px-6">
-                                <div className="bg-white/95 backdrop-blur-xl p-5 rounded-[2.5rem] shadow-2xl border border-white/20 flex flex-col md:flex-row items-end gap-3">
-                                    <div className="flex-1 grid grid-cols-2 gap-3 w-full">
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">Latitude</label>
-                                            <input type="number" step="0.000001" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-mono" value={gpsInput.lat} onChange={(e) => setGpsInput({...gpsInput, lat: e.target.value})} />
+                            <div className="absolute bottom-6 left-0 right-0 px-6 z-10 flex justify-center">
+                                <div className="bg-white/90 backdrop-blur-md p-4 rounded-[2rem] shadow-2xl border border-white/50 w-full max-w-lg flex items-center gap-3">
+                                    <div className="flex-1 grid grid-cols-2 gap-2">
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-2 text-[8px] font-black text-indigo-400 uppercase">Lat</span>
+                                            <input type="number" className="w-full pt-5 pb-2 px-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-mono outline-none focus:bg-white focus:ring-1 focus:ring-indigo-300" value={gpsInput.lat} onChange={(e) => setGpsInput({...gpsInput, lat: e.target.value})} />
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">Longitude</label>
-                                            <input type="number" step="0.000001" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-mono" value={gpsInput.lng} onChange={(e) => setGpsInput({...gpsInput, lng: e.target.value})} />
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-2 text-[8px] font-black text-indigo-400 uppercase">Lng</span>
+                                            <input type="number" className="w-full pt-5 pb-2 px-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-mono outline-none focus:bg-white focus:ring-1 focus:ring-indigo-300" value={gpsInput.lng} onChange={(e) => setGpsInput({...gpsInput, lng: e.target.value})} />
                                         </div>
                                     </div>
                                     <button 
                                         onClick={updateLocation}
                                         disabled={isSending}
-                                        className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold text-xs hover:bg-black transition-all shadow-lg flex items-center gap-2 active:scale-95 disabled:opacity-50 shrink-0"
+                                        className="bg-indigo-600 text-white h-12 px-6 rounded-xl font-bold text-xs hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center gap-2 active:scale-95 disabled:opacity-50"
                                     >
-                                        <LucideIcon name={isSending ? "refresh-cw" : "send"} size={14} className={isSending ? "animate-spin" : ""} />
-                                        위치 전송
+                                        <LucideIcon name={isSending ? "refresh-cw" : "map-pin"} size={14} className={isSending ? "animate-spin" : ""} />
+                                        {isSending ? "전송 중" : "전송"}
                                     </button>
                                 </div>
                             </div>
