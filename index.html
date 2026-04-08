@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPS 실시간 관제 시스템</title>
+    <title>Eye-Link (아이-링크)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -17,37 +17,12 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;900&display=swap');
         body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; overflow: hidden; }
-        #map { width: 100%; height: 100%; background-color: #f1f5f9; }
+        #map { width: 100%; height: 100%; background-color: #f8fafc; }
         
-        /* 커스텀 오버레이 스타일 (렉 유발 방지를 위해 단순화 및 최적화) */
-        .custom-overlay {
-            position: relative;
-            bottom: 50px;
-            border-radius: 12px;
-            background: #1e293b;
-            color: white;
-            padding: 8px 14px;
-            font-size: 12px;
-            font-weight: 600;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-            white-space: nowrap;
-            pointer-events: none;
-        }
-        .custom-overlay::after {
-            content: '';
-            position: absolute;
-            bottom: -6px;
-            left: 50%;
-            transform: translateX(-50%);
-            border-width: 6px 6px 0;
-            border-style: solid;
-            border-color: #1e293b transparent transparent;
-        }
-
-        /* 휠 스크롤 성능 향상 */
-        .kakao-map-container div {
-            transition: none !important; /* 애니메이션 충돌 방지 */
-        }
+        /* 스크롤바 커스텀 */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
@@ -74,27 +49,23 @@
             
             const mapRef = useRef(null);
             const markerRef = useRef(null);
-            const polylineRef = useRef(null);
-            const overlayRef = useRef(null);
-            const pathPointsRef = useRef([]); 
-
-            const [gpsInput, setGpsInput] = useState({ lat: '35.190360', lng: '128.815600' });
-            const [isSending, setIsSending] = useState(false);
             const [loginData, setLoginData] = useState({ userId: '', password: '' });
             const [signupData, setSignupData] = useState({ userId: '', password: '', name: '', school: '' });
 
+            // 학생 데이터 로드
             const fetchStudents = async () => {
                 setLoadingStudents(true);
                 try {
                     const { data, error } = await supabase.from('t_student').select('*').order('stu_no', { ascending: true });
                     if (data) setStudents(data);
                 } catch (err) {
-                    console.error("학생 로드 실패:", err);
+                    console.error("Data Load Failed:", err);
                 } finally {
                     setLoadingStudents(false);
                 }
             };
 
+            // 카카오맵 초기화 (순수 기본 기능 중심)
             const initMap = useCallback(() => {
                 if (typeof window.kakao === 'undefined' || !window.kakao.maps) return;
 
@@ -102,52 +73,26 @@
                     const container = document.getElementById('map');
                     if (!container) return;
 
-                    const initialPos = new window.kakao.maps.LatLng(parseFloat(gpsInput.lat), parseFloat(gpsInput.lng));
-                    
+                    // 기본 중심 좌표 (임시 좌표)
+                    const defaultPos = new window.kakao.maps.LatLng(35.190360, 128.815600);
                     const options = { 
-                        center: initialPos, 
-                        level: 3,
-                        scrollwheel: true,
-                        speed: 10 // 줌 속도 조절
+                        center: defaultPos, 
+                        level: 3 
                     };
                     
                     const map = new window.kakao.maps.Map(container, options);
-                    map.setCopyrightPosition(window.kakao.maps.ControlPosition.BOTTOMRIGHT, true);
+                    
+                    // 기본 UI 컨트롤 추가
+                    map.addControl(new window.kakao.maps.MapTypeControl(), window.kakao.maps.ControlPosition.TOPRIGHT);
+                    map.addControl(new window.kakao.maps.ZoomControl(), window.kakao.maps.ControlPosition.RIGHT);
+
                     mapRef.current = map;
                     
-                    const marker = new window.kakao.maps.Marker({ position: initialPos });
+                    // 테스트용 기본 마커
+                    const marker = new window.kakao.maps.Marker({ position: defaultPos });
                     marker.setMap(map);
                     markerRef.current = marker;
 
-                    const polyline = new window.kakao.maps.Polyline({
-                        path: [initialPos],
-                        strokeWeight: 4,
-                        strokeColor: '#6366f1',
-                        strokeOpacity: 0.8,
-                        strokeStyle: 'solid'
-                    });
-                    polyline.setMap(map);
-                    polylineRef.current = polyline;
-                    pathPointsRef.current = [initialPos];
-
-                    // 말풍선 오버레이 생성 (필요할 때만 업데이트)
-                    const overlay = new window.kakao.maps.CustomOverlay({
-                        position: initialPos,
-                        content: `<div class="custom-overlay">위치 추적 중</div>`,
-                        yAnchor: 1
-                    });
-                    overlay.setMap(map);
-                    overlayRef.current = overlay;
-
-                    // 맵 클릭 시 좌표 자동 입력 기능 (편의용)
-                    window.kakao.maps.event.addListener(map, 'click', (mouseEvent) => {
-                        const latlng = mouseEvent.latLng;
-                        setGpsInput({
-                            lat: latlng.getLat().toFixed(6),
-                            lng: latlng.getLng().toFixed(6)
-                        });
-                    });
-                    
                     window.addEventListener('resize', () => map.relayout());
                 });
             }, []);
@@ -158,39 +103,6 @@
                     setTimeout(initMap, 100);
                 }
             }, [view, initMap]);
-
-            const updateLocation = async () => {
-                if (!mapRef.current) return;
-                const newLat = parseFloat(gpsInput.lat);
-                const newLng = parseFloat(gpsInput.lng);
-                const newPos = new window.kakao.maps.LatLng(newLat, newLng);
-
-                // 부드러운 이동
-                mapRef.current.panTo(newPos);
-                markerRef.current.setPosition(newPos);
-                
-                // 오버레이 내용 및 위치 갱신
-                overlayRef.current.setPosition(newPos);
-                overlayRef.current.setContent(`<div class="custom-overlay">${newLat.toFixed(4)}, ${newLng.toFixed(4)}</div>`);
-
-                const newPath = [...pathPointsRef.current, newPos];
-                pathPointsRef.current = newPath;
-                polylineRef.current.setPath(newPath);
-
-                setIsSending(true);
-                try {
-                    await supabase.from('gps_logs').insert([{ 
-                        device_id: 'WEB_CONTROL', 
-                        latitude: newLat, 
-                        longitude: newLng,
-                        user_id: user?.user_id 
-                    }]);
-                } catch(e) {
-                    console.error("전송 오류:", e);
-                } finally {
-                    setIsSending(false);
-                }
-            };
 
             const handleLogin = async (e) => {
                 e.preventDefault();
@@ -207,25 +119,32 @@
                     p_user_name: signupData.name,
                     p_user_school: signupData.school
                 });
-                if (error) alert("이미 가입된 아이디입니다.");
-                else { alert("가입 완료되었습니다."); setView('login'); }
+                if (error) alert("등록에 실패했습니다.");
+                else { alert("등록되었습니다."); setView('login'); }
             };
 
             if (view === 'login') {
                 return (
-                    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
-                        <div className="bg-white p-10 rounded-[2rem] shadow-xl w-full max-w-md">
+                    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+                        <div className="bg-white p-12 rounded-[2.5rem] shadow-2xl w-full max-w-md border border-slate-100">
                             <div className="text-center mb-10">
-                                <div className="inline-block p-4 bg-indigo-600 rounded-2xl text-white mb-4">
-                                    <LucideIcon name="activity" size={32} />
+                                <div className="inline-block p-4 bg-blue-600 rounded-2xl text-white mb-6 shadow-lg shadow-blue-100">
+                                    <LucideIcon name="eye" size={32} />
                                 </div>
-                                <h2 className="text-2xl font-black text-slate-800 tracking-tight">GPS Admin Login</h2>
+                                <h2 className="text-3xl font-black text-slate-900 tracking-tighter mb-2 italic">Eye-Link</h2>
+                                <p className="text-slate-400 text-sm font-medium tracking-tight">아이-링크 관리자 시스템</p>
                             </div>
                             <form onSubmit={handleLogin} className="space-y-4">
-                                <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="아이디" value={loginData.userId} onChange={(e) => setLoginData({...loginData, userId: e.target.value})} required />
-                                <input type="password" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="비밀번호" value={loginData.password} onChange={(e) => setLoginData({...loginData, password: e.target.value})} required />
-                                <button className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl hover:bg-black transition-all active:scale-95 shadow-lg">접속하기</button>
-                                <button type="button" onClick={() => setView('signup')} className="w-full text-slate-400 text-sm font-semibold py-2">신규 등록</button>
+                                <div className="space-y-2">
+                                    <label className="text-[11px] font-bold text-slate-400 ml-1 uppercase">Admin ID</label>
+                                    <input className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="아이디" value={loginData.userId} onChange={(e) => setLoginData({...loginData, userId: e.target.value})} required />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[11px] font-bold text-slate-400 ml-1 uppercase">Password</label>
+                                    <input type="password" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="비밀번호" value={loginData.password} onChange={(e) => setLoginData({...loginData, password: e.target.value})} required />
+                                </div>
+                                <button className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 transition-all active:scale-95 shadow-lg shadow-blue-100 mt-4">로그인</button>
+                                <button type="button" onClick={() => setView('signup')} className="w-full text-slate-400 text-xs font-semibold py-2">신규 관리자 등록</button>
                             </form>
                         </div>
                     </div>
@@ -234,16 +153,16 @@
 
             if (view === 'signup') {
                 return (
-                    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
-                        <div className="bg-white p-10 rounded-[2rem] shadow-xl w-full max-w-md">
-                            <h2 className="text-2xl font-black text-slate-800 mb-8 text-center">관리자 등록</h2>
+                    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+                        <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md">
+                            <h2 className="text-2xl font-black text-slate-900 mb-8 text-center tracking-tight">관리자 계정 생성</h2>
                             <form onSubmit={handleSignup} className="space-y-4">
-                                <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="이름" onChange={(e) => setSignupData({...signupData, name: e.target.value})} required />
-                                <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="아이디" onChange={(e) => setSignupData({...signupData, userId: e.target.value})} required />
-                                <input type="password" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="비밀번호" onChange={(e) => setSignupData({...signupData, password: e.target.value})} required />
-                                <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="소속 학교" onChange={(e) => setSignupData({...signupData, school: e.target.value})} required />
-                                <button className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl mt-4 hover:bg-indigo-700 transition-all active:scale-95 shadow-lg">가입 완료</button>
-                                <button type="button" onClick={() => setView('login')} className="w-full text-slate-400 text-sm font-semibold py-2">뒤로 가기</button>
+                                <input className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none" placeholder="실명" onChange={(e) => setSignupData({...signupData, name: e.target.value})} required />
+                                <input className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none" placeholder="아이디" onChange={(e) => setSignupData({...signupData, userId: e.target.value})} required />
+                                <input type="password" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none" placeholder="비밀번호" onChange={(e) => setSignupData({...signupData, password: e.target.value})} required />
+                                <input className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none" placeholder="소속(학교/기관)" onChange={(e) => setSignupData({...signupData, school: e.target.value})} required />
+                                <button className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl mt-4">등록하기</button>
+                                <button type="button" onClick={() => setView('login')} className="w-full text-slate-400 text-xs font-semibold py-2">이전으로</button>
                             </form>
                         </div>
                     </div>
@@ -253,48 +172,56 @@
             return (
                 <div className="h-screen flex flex-col bg-white overflow-hidden">
                     {/* Header */}
-                    <header className="h-14 border-b border-slate-200 flex items-center justify-between px-6 bg-white shrink-0 z-30">
-                        <div className="flex items-center gap-2">
-                            <div className="bg-indigo-600 p-1.5 rounded-lg text-white">
-                                <LucideIcon name="navigation" size={16} />
+                    <header className="h-16 border-b border-slate-200 flex items-center justify-between px-6 bg-white shrink-0 z-30 shadow-sm">
+                        <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                                <div className="bg-blue-600 p-1.5 rounded-lg text-white">
+                                    <LucideIcon name="eye" size={16} />
+                                </div>
+                                <span className="font-black text-slate-900 tracking-tighter text-xl italic uppercase">Eye-Link</span>
                             </div>
-                            <span className="font-black text-slate-800 tracking-tight">GPS LIVE</span>
+                            <span className="text-[10px] font-bold text-blue-500 mt-0.5 tracking-tight">특수아동 현장체험학습 안전 솔루션</span>
                         </div>
-                        <div className="flex items-center gap-4">
-                            <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full">
-                                {user?.user_school} · {user?.user_name}
-                            </span>
-                            <button onClick={() => setView('login')} className="text-slate-300 hover:text-rose-500 transition-colors">
-                                <LucideIcon name="log-out" size={18} />
+                        
+                        <div className="flex items-center gap-6">
+                            <div className="hidden md:flex flex-col items-end">
+                                <span className="text-[11px] font-black text-slate-800">{user?.user_name} 관리자</span>
+                                <span className="text-[10px] font-medium text-slate-400">{user?.user_school}</span>
+                            </div>
+                            <button onClick={() => setView('login')} className="p-2 bg-slate-50 text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all rounded-xl">
+                                <LucideIcon name="log-out" size={20} />
                             </button>
                         </div>
                     </header>
 
                     <div className="flex-1 flex overflow-hidden">
                         {/* Sidebar */}
-                        <aside className="w-64 border-r border-slate-100 flex flex-col shrink-0 bg-white z-20">
-                            <div className="p-4 border-b border-slate-50">
-                                <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">Target List</h2>
+                        <aside className="w-72 border-r border-slate-200 flex flex-col shrink-0 bg-white z-20">
+                            <div className="p-5 border-b border-slate-100">
+                                <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">안전 관리 목록</h2>
                                 <div className="relative">
                                     <LucideIcon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                                    <input className="w-full pl-9 pr-4 py-2 bg-slate-50 rounded-xl text-xs outline-none focus:ring-1 focus:ring-indigo-300" placeholder="학생 이름 검색..." />
+                                    <input className="w-full pl-9 pr-4 py-2.5 bg-slate-50 rounded-xl text-xs outline-none" placeholder="학생 검색..." />
                                 </div>
                             </div>
-                            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                            <div className="flex-1 overflow-y-auto p-3 space-y-1">
                                 {loadingStudents ? (
-                                    <div className="p-10 text-center"><div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto"></div></div>
+                                    <div className="p-10 text-center flex flex-col items-center gap-2">
+                                        <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">Syncing...</span>
+                                    </div>
                                 ) : students.map(s => (
                                     <button 
                                         key={s.stu_no}
                                         onClick={() => setSelectedStudent(s)}
-                                        className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${selectedStudent?.stu_no === s.stu_no ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200' : 'hover:bg-slate-50 text-slate-600'}`}
+                                        className={`w-full flex items-center gap-3 p-3.5 rounded-2xl transition-all ${selectedStudent?.stu_no === s.stu_no ? 'bg-blue-600 text-white shadow-lg' : 'hover:bg-slate-50 text-slate-600'}`}
                                     >
-                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-black shrink-0 ${selectedStudent?.stu_no === s.stu_no ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black shrink-0 ${selectedStudent?.stu_no === s.stu_no ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-400'}`}>
                                             {s.stu_name.substring(0,1)}
                                         </div>
-                                        <div className="text-left">
-                                            <div className="text-xs font-bold">{s.stu_name}</div>
-                                            <div className="text-[9px] opacity-60">ID: {s.stu_no}</div>
+                                        <div className="text-left flex-1">
+                                            <div className="text-xs font-bold">{s.stu_name} 학생</div>
+                                            <div className={`text-[10px] font-medium opacity-60 ${selectedStudent?.stu_no === s.stu_no ? 'text-white' : 'text-slate-400'}`}>ID: {s.stu_no}</div>
                                         </div>
                                     </button>
                                 ))}
@@ -302,41 +229,36 @@
                         </aside>
 
                         {/* Map Container */}
-                        <main className="flex-1 relative">
+                        <main className="flex-1 relative bg-slate-50">
                             <div id="map" className="w-full h-full"></div>
                             
-                            {/* Selected Info HUD */}
+                            {/* HUD Indicator */}
                             {selectedStudent && (
-                                <div className="absolute top-4 left-4 z-10">
-                                    <div className="bg-white p-3 rounded-2xl shadow-xl border border-slate-200 flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-                                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                                        <span className="text-xs font-bold text-slate-700">{selectedStudent.stu_name} 실시간 추적 중</span>
-                                        <button onClick={() => setSelectedStudent(null)} className="text-slate-300 hover:text-slate-500"><LucideIcon name="x" size={14} /></button>
+                                <div className="absolute top-6 left-6 z-10">
+                                    <div className="bg-white/95 backdrop-blur-md px-6 py-4 rounded-3xl shadow-2xl border border-white flex items-center gap-4 animate-in fade-in slide-in-from-top-4">
+                                        <div className="w-10 h-10 bg-blue-600 rounded-2xl flex items-center justify-center text-white font-black text-sm">
+                                            {selectedStudent.stu_name.substring(0,1)}
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className="text-[13px] font-black text-slate-800">{selectedStudent.stu_name} 학생</span>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                                <span className="text-[10px] font-bold text-emerald-600 uppercase">Live Tracking</span>
+                                            </div>
+                                        </div>
+                                        <button onClick={() => setSelectedStudent(null)} className="ml-2 text-slate-300 hover:text-slate-500 transition-colors">
+                                            <LucideIcon name="x" size={16} />
+                                        </button>
                                     </div>
                                 </div>
                             )}
 
-                            {/* Control Pad */}
-                            <div className="absolute bottom-6 left-0 right-0 px-6 z-10 flex justify-center">
-                                <div className="bg-white/90 backdrop-blur-md p-4 rounded-[2rem] shadow-2xl border border-white/50 w-full max-w-lg flex items-center gap-3">
-                                    <div className="flex-1 grid grid-cols-2 gap-2">
-                                        <div className="relative">
-                                            <span className="absolute left-3 top-2 text-[8px] font-black text-indigo-400 uppercase">Lat</span>
-                                            <input type="number" className="w-full pt-5 pb-2 px-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-mono outline-none focus:bg-white focus:ring-1 focus:ring-indigo-300" value={gpsInput.lat} onChange={(e) => setGpsInput({...gpsInput, lat: e.target.value})} />
-                                        </div>
-                                        <div className="relative">
-                                            <span className="absolute left-3 top-2 text-[8px] font-black text-indigo-400 uppercase">Lng</span>
-                                            <input type="number" className="w-full pt-5 pb-2 px-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-mono outline-none focus:bg-white focus:ring-1 focus:ring-indigo-300" value={gpsInput.lng} onChange={(e) => setGpsInput({...gpsInput, lng: e.target.value})} />
-                                        </div>
-                                    </div>
-                                    <button 
-                                        onClick={updateLocation}
-                                        disabled={isSending}
-                                        className="bg-indigo-600 text-white h-12 px-6 rounded-xl font-bold text-xs hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center gap-2 active:scale-95 disabled:opacity-50"
-                                    >
-                                        <LucideIcon name={isSending ? "refresh-cw" : "map-pin"} size={14} className={isSending ? "animate-spin" : ""} />
-                                        {isSending ? "전송 중" : "전송"}
-                                    </button>
+                            {/* Status */}
+                            <div className="absolute bottom-6 right-6 z-10">
+                                <div className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-[10px] font-black tracking-widest uppercase flex items-center gap-3 shadow-2xl">
+                                    <span className="text-blue-400 italic">Eye-Link</span>
+                                    <span className="w-1 h-1 rounded-full bg-blue-500 animate-ping"></span>
+                                    Monitoring System Active
                                 </div>
                             </div>
                         </main>
