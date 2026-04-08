@@ -31,6 +31,11 @@
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
             border: 1px solid rgba(255,255,255,0.2);
         }
+
+        /* 이전의 깔끔한 로그인 배경 스타일 */
+        .login-bg {
+            background: radial-gradient(circle at top right, #f8fafc, #e2e8f0);
+        }
     </style>
 </head>
 <body class="bg-white text-slate-900">
@@ -43,22 +48,6 @@
         const SUPABASE_URL = "https://wedgzkwlkouheqfktskl.supabase.co"; 
         const SUPABASE_ANON_KEY = "sb_publishable_OY6cu-DKhs1QuXJUCu0g4g_YwsRZNc-"; 
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-        // 한국 시간 포맷터 (YYYY-MM-DD HH:mm:ss)
-        const getKSTTime = () => {
-            const now = new Date();
-            const options = {
-                year: 'numeric', month: '2-digit', day: '2-digit',
-                hour: '2-digit', minute: '2-digit', second: '2-digit',
-                hour12: false,
-                timeZone: 'Asia/Seoul'
-            };
-            const formatter = new Intl.DateTimeFormat('ko-KR', options);
-            const parts = formatter.formatToParts(now);
-            const p = {};
-            parts.forEach(({type, value}) => p[type] = value);
-            return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
-        };
 
         const LucideIcon = ({ name, size = 18, className = "" }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name, size]);
@@ -95,15 +84,14 @@
             const handleLogin = async (e) => {
                 e.preventDefault();
                 const { data, error } = await supabase.from('t_user').select('*').eq('user_id', loginInfo.id).eq('user_pw', loginInfo.pw).single();
-                if (error || !data) return alert("로그인 실패");
+                if (error || !data) return alert("로그인 정보를 확인해주세요.");
                 
-                // 한국 시간 기준으로 로그인 로그 기록 (시분초까지만)
-                const kstNow = getKSTTime();
+                // 로그인 로그 기록 (시간은 DB의 DEFAULT CURRENT_TIMESTAMP(0)가 처리하도록 파라미터 제외)
                 await supabase.from('t_login').insert([{ 
                     user_id: loginInfo.id, 
                     platform: 'Web', 
-                    user_agent: navigator.userAgent,
-                    login_time: kstNow 
+                    user_agent: navigator.userAgent
+                    // login_time은 DB에서 자동으로 'Asia/Seoul' 기준 TIMESTAMP(0)로 입력됨
                 }]);
                 
                 setUser(data);
@@ -153,10 +141,9 @@
                 return () => clearInterval(moveInterval);
             }, [view]);
 
-            // 선택된 학생의 경로 표시 업데이트
+            // 경로 표시
             useEffect(() => {
                 if (!mapRef.current) return;
-                
                 if (polylineRef.current) polylineRef.current.setMap(null);
 
                 if (selectedStudentId) {
@@ -180,55 +167,87 @@
 
             if (view === 'login') {
                 return (
-                    <div className="h-screen flex items-center justify-center bg-slate-100 p-6">
-                        <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-sm">
-                            <h2 className="text-2xl font-black mb-6 text-center tracking-tighter">EYE-LINK LOGIN</h2>
+                    <div className="h-screen flex items-center justify-center login-bg p-6 font-sans">
+                        <div className="bg-white/70 backdrop-blur-xl p-10 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-white w-full max-w-sm">
+                            <div className="text-center mb-10">
+                                <div className="inline-flex items-center justify-center w-16 h-16 bg-slate-900 rounded-2xl mb-4 shadow-lg shadow-slate-200">
+                                    <LucideIcon name="shield-check" size={32} className="text-white" />
+                                </div>
+                                <h2 className="text-3xl font-black text-slate-900 tracking-tighter">EYE-LINK</h2>
+                                <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-[0.2em]">Student Monitoring System</p>
+                            </div>
+                            
                             <form onSubmit={handleLogin} className="space-y-4">
-                                <input className="w-full p-4 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-slate-900 transition-all" placeholder="ID" value={loginInfo.id} onChange={e => setLoginInfo({...loginInfo, id: e.target.value})} required />
-                                <input type="password" className="w-full p-4 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-slate-900 transition-all" placeholder="PW" value={loginInfo.pw} onChange={e => setLoginInfo({...loginInfo, pw: e.target.value})} required />
-                                <button className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl hover:bg-black transition-all">접속하기</button>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black text-slate-400 ml-1 uppercase tracking-wider">Administrator ID</label>
+                                    <input className="w-full p-4 bg-white/50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-slate-900 transition-all font-medium" placeholder="아이디를 입력하세요" value={loginInfo.id} onChange={e => setLoginInfo({...loginInfo, id: e.target.value})} required />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black text-slate-400 ml-1 uppercase tracking-wider">Password</label>
+                                    <input type="password" className="w-full p-4 bg-white/50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-slate-900 transition-all font-medium" placeholder="비밀번호를 입력하세요" value={loginInfo.pw} onChange={e => setLoginInfo({...loginInfo, pw: e.target.value})} required />
+                                </div>
+                                <button className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-black transition-all shadow-xl shadow-slate-200 mt-4 active:scale-[0.98]">
+                                    로그인
+                                </button>
                             </form>
+                            
+                            <div className="mt-8 text-center">
+                                <p className="text-[11px] text-slate-400 font-medium">관리자 전용 시스템입니다.</p>
+                            </div>
                         </div>
                     </div>
                 );
             }
 
             return (
-                <div className="h-screen flex flex-col overflow-hidden">
+                <div className="h-screen flex flex-col overflow-hidden bg-slate-50">
                     <header className="h-14 border-b flex items-center justify-between px-6 bg-white shrink-0 z-10">
-                        <span className="font-black text-lg tracking-tighter">EYE-LINK MONITORING</span>
-                        <div className="flex items-center gap-3">
-                            <span className="text-xs font-bold text-slate-500">{user?.user_name} 관리자</span>
-                            <button onClick={() => setView('login')} className="text-slate-400 hover:text-red-500 transition-colors"><LucideIcon name="log-out" size={18} /></button>
+                        <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 bg-slate-900 rounded flex items-center justify-center">
+                                <LucideIcon name="shield" size={12} className="text-white" />
+                            </div>
+                            <span className="font-black text-lg tracking-tighter">EYE-LINK MONITORING</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <div className="flex flex-col items-end">
+                                <span className="text-xs font-bold text-slate-900">{user?.user_name} 관리자</span>
+                                <span className="text-[9px] text-slate-400 font-bold uppercase">{user?.user_school}</span>
+                            </div>
+                            <div className="h-8 w-[1px] bg-slate-100 mx-1"></div>
+                            <button onClick={() => setView('login')} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
+                                <LucideIcon name="log-out" size={20} />
+                            </button>
                         </div>
                     </header>
 
                     <div className="flex-1 flex overflow-hidden">
-                        {/* 학생 목록 사이드바 */}
                         <aside className="w-64 border-r flex flex-col bg-white shrink-0">
-                            <div className="p-4 border-b bg-slate-50">
-                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">학생 리스트</h3>
+                            <div className="p-4 border-b bg-slate-50/50 flex items-center justify-between">
+                                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">학생 실시간 목록</h3>
+                                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
                             </div>
-                            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
                                 {students.map(s => (
                                     <button 
                                         key={s.id}
                                         onClick={() => setSelectedStudentId(s.id)}
-                                        className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${selectedStudentId === s.id ? 'bg-slate-900 text-white shadow-lg' : 'hover:bg-slate-100'}`}
+                                        className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-all border ${selectedStudentId === s.id ? 'bg-slate-900 border-slate-900 text-white shadow-lg shadow-slate-200' : 'bg-white border-slate-100 hover:border-slate-300 hover:bg-slate-50'}`}
                                     >
-                                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }}></div>
-                                        <span className="text-sm font-bold">{s.name}</span>
-                                        {selectedStudentId === s.id && <LucideIcon name="check" size={14} className="ml-auto" />}
+                                        <div className="w-2.5 h-2.5 rounded-full shadow-inner" style={{ backgroundColor: s.color }}></div>
+                                        <span className="text-sm font-bold tracking-tight">{s.name}</span>
+                                        {selectedStudentId === s.id && <LucideIcon name="chevron-right" size={14} className="ml-auto opacity-50" />}
                                     </button>
                                 ))}
                             </div>
                         </aside>
 
-                        {/* 지도 영역 */}
                         <div className="flex-1 relative">
                             <div id="map"></div>
-                            <div className="absolute top-4 left-4 bg-white/80 backdrop-blur px-3 py-1.5 rounded-full border shadow-sm text-[10px] font-bold z-10">
-                                3초마다 위치가 자동 갱신됩니다
+                            <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
+                                <div className="bg-white shadow-xl px-4 py-2 rounded-2xl border border-slate-100 flex items-center gap-2">
+                                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                                    <span className="text-[11px] font-bold text-slate-600 uppercase tracking-tight">Live Tracking Active</span>
+                                </div>
                             </div>
                         </div>
                     </div>
