@@ -9,26 +9,24 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
     <!-- 카카오 지도 API -->
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=173d252d4d96821fe2235b962120637b&libraries=services&autoload=false"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;900&display=swap');
-        body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; overflow: hidden; }
+        body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; }
         #map { width: 100%; height: 100%; background-color: #f8fafc; }
-        
-        /* 경로 위 시간 라벨 스타일 */
         .path-label {
-            background: #1e293b;
-            color: white;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 700;
-            border: 1px solid rgba(255,255,255,0.2);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            white-space: nowrap;
+            background: #1e293b; color: white; padding: 2px 6px; border-radius: 4px;
+            font-size: 10px; font-weight: 700; border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2); white-space: nowrap;
+        }
+        .glass-morphism {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
     </style>
 </head>
@@ -38,33 +36,111 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        // --- Supabase 설정 ---
+        const SUPABASE_URL = ""; // 여기에 Supabase URL 입력
+        const SUPABASE_ANON_KEY = ""; // 여기에 Supabase Anon Key 입력
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
         const Icon = ({ name, size = 18, className = "" }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
             return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
         };
 
         const App = () => {
-            // 학생 데이터 및 경로(path) 상태 관리
+            // View State: 'login' | 'signup' | 'main'
+            const [view, setView] = useState('login');
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(false);
+
+            // Auth Inputs
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [school, setSchool] = useState('');
+
+            // Map & Data State
             const [devices, setDevices] = useState([
                 { id: 1, name: "김민수 학생", lat: 35.190360, lng: 128.815600, status: "moving", battery: 85, path: [] },
-                { id: 2, name: "이서연 학생", lat: 35.192360, lng: 128.818600, status: "idle", battery: 42, path: [] },
-                { id: 3, name: "박지성 학생", lat: 35.188360, lng: 128.812600, status: "moving", battery: 98, path: [] }
+                { id: 2, name: "이서연 학생", lat: 35.192360, lng: 128.818600, status: "idle", battery: 42, path: [] }
             ]);
-
             const [selectedId, setSelectedId] = useState(1);
             const [isMapReady, setIsMapReady] = useState(false);
             
             const mapRef = useRef(null);
             const markersRef = useRef({});
             const polylinesRef = useRef({});
-            const overlaysRef = useRef({}); // 시간 표시용 오버레이 관리
+            const overlaysRef = useRef({});
 
-            // 지도 초기화
+            // 세션 체크
             useEffect(() => {
-                if (!window.kakao) return;
+                const checkSession = async () => {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (session) {
+                        setUser(session.user);
+                        setView('main');
+                    }
+                };
+                checkSession();
+            }, []);
+
+            // --- Auth 기능 ---
+            const handleSignUp = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                try {
+                    // 1. Auth 회원가입
+                    const { data, error } = await supabase.auth.signUp({
+                        email,
+                        password,
+                        options: { data: { school_name: school } }
+                    });
+                    if (error) throw error;
+                    
+                    // 2. 추가 정보 DB 저장 (profiles 테이블)
+                    const { error: dbError } = await supabase
+                        .from('profiles')
+                        .insert([{ id: data.user.id, school_name: school, email }]);
+                    
+                    if (dbError) throw dbError;
+
+                    alert("회원가입 성공! 이메일을 확인하거나 로그인해주세요.");
+                    setView('login');
+                } catch (err) {
+                    alert("회원가입 실패: " + err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                try {
+                    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+                    if (error) throw error;
+                    setUser(data.user);
+                    setView('main');
+                } catch (err) {
+                    alert("로그인 실패: " + err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleLogout = async () => {
+                await supabase.auth.signOut();
+                setUser(null);
+                setView('login');
+                setIsMapReady(false);
+            };
+
+            // --- 지도 로직 (로그인 후 실행) ---
+            useEffect(() => {
+                if (view !== 'main' || !window.kakao) return;
 
                 window.kakao.maps.load(() => {
                     const container = document.getElementById('map');
+                    if (!container) return;
+                    
                     const options = {
                         center: new window.kakao.maps.LatLng(devices[0].lat, devices[0].lng),
                         level: 4
@@ -75,116 +151,101 @@
 
                     devices.forEach(device => {
                         const position = new window.kakao.maps.LatLng(device.lat, device.lng);
-                        
-                        // 1. 마커 생성
-                        const marker = new window.kakao.maps.Marker({
-                            position: position,
-                            map: map
-                        });
+                        const marker = new window.kakao.maps.Marker({ position, map });
                         markersRef.current[device.id] = marker;
 
-                        // 2. 경로 선(Polyline) 생성
                         const polyline = new window.kakao.maps.Polyline({
-                            map: map,
-                            path: [position],
-                            strokeWeight: 4,
-                            strokeColor: device.id === 1 ? '#4f46e5' : (device.id === 2 ? '#059669' : '#d97706'),
-                            strokeOpacity: 0.7,
-                            strokeStyle: 'solid'
+                            map, path: [position], strokeWeight: 4,
+                            strokeColor: device.id === 1 ? '#4f46e5' : '#059669',
+                            strokeOpacity: 0.7
                         });
                         polylinesRef.current[device.id] = polyline;
 
-                        // 3. 시간 라벨용 커스텀 오버레이 (초기엔 숨김)
                         const overlay = new window.kakao.maps.CustomOverlay({
-                            position: position,
-                            content: `<div class="path-label">방금 전</div>`,
-                            yAnchor: 2.2
+                            position, content: `<div class="path-label">수신 중</div>`, yAnchor: 2.2
                         });
                         overlay.setMap(map);
                         overlaysRef.current[device.id] = overlay;
-
-                        window.kakao.maps.event.addListener(marker, 'click', () => {
-                            setSelectedId(device.id);
-                        });
                     });
-
                     setIsMapReady(true);
                 });
-            }, []);
+            }, [view]);
 
-            // [실시간 이동 및 경로 업데이트 시뮬레이션]
-            useEffect(() => {
-                if (!isMapReady) return;
+            // --- 렌더링 파트 ---
+            
+            // 1. 로그인 화면
+            if (view === 'login') {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
+                        <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 border border-slate-200">
+                            <div className="flex flex-col items-center mb-8">
+                                <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white mb-4">
+                                    <Icon name="shield-check" size={32} />
+                                </div>
+                                <h2 className="text-2xl font-black text-slate-800 tracking-tight">관제 시스템 로그인</h2>
+                                <p className="text-slate-400 text-sm mt-1">학생 안전을 위한 통합 관리 서비스</p>
+                            </div>
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                <input type="email" placeholder="이메일 주소" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={email} onChange={e => setEmail(e.target.value)} required />
+                                <input type="password" placeholder="비밀번호" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={password} onChange={e => setPassword(e.target.value)} required />
+                                <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 uppercase tracking-wide">
+                                    {loading ? '처리 중...' : '로그인'}
+                                </button>
+                            </form>
+                            <div className="mt-6 text-center text-sm text-slate-500">
+                                계정이 없으신가요? <button onClick={() => setView('signup')} className="text-indigo-600 font-bold underline">회원가입</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
 
-                const interval = setInterval(() => {
-                    setDevices(prevDevices => 
-                        prevDevices.map(device => {
-                            if (device.status === "moving") {
-                                // 무작위 이동 좌표 생성
-                                const newLat = device.lat + (Math.random() - 0.5) * 0.0002;
-                                const newLng = device.lng + (Math.random() - 0.5) * 0.0002;
-                                const newPos = new window.kakao.maps.LatLng(newLat, newLng);
-                                
-                                // 지도 요소 실시간 업데이트
-                                if (markersRef.current[device.id]) {
-                                    markersRef.current[device.id].setPosition(newPos);
-                                }
+            // 2. 회원가입 화면
+            if (view === 'signup') {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
+                        <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 border border-slate-200">
+                            <h2 className="text-2xl font-black text-slate-800 mb-6">시스템 가입 신청</h2>
+                            <form onSubmit={handleSignUp} className="space-y-4">
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">Email Address</label>
+                                    <input type="email" placeholder="example@school.ac.kr" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={email} onChange={e => setEmail(e.target.value)} required />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">Password</label>
+                                    <input type="password" placeholder="6자리 이상 입력" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={password} onChange={e => setPassword(e.target.value)} required />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">School Name</label>
+                                    <input type="text" placeholder="예: 석리초등학교" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={school} onChange={e => setSchool(e.target.value)} required />
+                                </div>
+                                <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-all shadow-lg mt-4">
+                                    {loading ? '가입 진행 중...' : '최종 가입 신청'}
+                                </button>
+                                <button type="button" onClick={() => setView('login')} className="w-full text-slate-400 text-sm font-medium py-2">뒤로 가기</button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
 
-                                if (polylinesRef.current[device.id]) {
-                                    const currentPath = polylinesRef.current[device.id].getPath();
-                                    currentPath.push(newPos);
-                                    polylinesRef.current[device.id].setPath(currentPath);
-                                    
-                                    // 경로가 일정 이상일 때 중간 지점에 라벨 표시
-                                    if (currentPath.length > 2 && currentPath.length % 5 === 0) {
-                                        const midIdx = Math.floor(currentPath.length / 2);
-                                        overlaysRef.current[device.id].setPosition(currentPath[midIdx]);
-                                        overlaysRef.current[device.id].setContent(`<div class="path-label">${currentPath.length}초 전 이동 경로</div>`);
-                                    }
-                                }
-
-                                return { 
-                                    ...device, 
-                                    lat: newLat, 
-                                    lng: newLng, 
-                                    path: [...device.path, { lat: newLat, lng: newLng }] 
-                                };
-                            }
-                            return device;
-                        })
-                    );
-                }, 3000);
-
-                return () => clearInterval(interval);
-            }, [isMapReady]);
-
-            const selectDevice = (id) => {
-                setSelectedId(id);
-                const device = devices.find(d => d.id === id);
-                if (device && mapRef.current) {
-                    const moveLatLng = new window.kakao.maps.LatLng(device.lat, device.lng);
-                    mapRef.current.panTo(moveLatLng);
-                }
-            };
-
+            // 3. 메인 관제 화면 (기존 UI 유지)
             return (
                 <div className="flex flex-col h-screen overflow-hidden bg-white">
-                    {/* Header */}
                     <header className="h-16 border-b border-slate-200 flex items-center justify-between px-6 bg-white shrink-0 z-50">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
                                 <Icon name="route" size={22} />
                             </div>
                             <div>
-                                <h1 className="font-bold text-slate-900 text-sm tracking-tight uppercase">Smart Safety Tracker</h1>
-                                <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase">Path Visualization Active</p>
+                                <h1 className="font-bold text-slate-900 text-sm tracking-tight">Smart Safety Tracker</h1>
+                                <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase">Logged in: {user?.user_metadata?.school_name || '관리자'}</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-4">
-                            <div className="hidden md:flex flex-col items-end mr-2">
-                                <span className="text-xs font-bold text-slate-700">홍민호 선생님</span>
-                                <span className="text-[10px] text-indigo-500 font-medium tracking-tight">석리초등학교 1-1</span>
-                            </div>
+                            <button onClick={handleLogout} className="text-xs font-bold text-rose-500 hover:bg-rose-50 px-3 py-2 rounded-lg transition-all flex items-center gap-1">
+                                <Icon name="log-out" size={14} /> 로그아웃
+                            </button>
                             <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
                                 <Icon name="user" className="text-slate-400" />
                             </div>
@@ -192,59 +253,35 @@
                     </header>
 
                     <div className="flex-1 flex overflow-hidden">
-                        {/* Sidebar */}
                         <aside className="w-80 bg-white border-r border-slate-200 flex flex-col z-40">
                             <div className="p-5 border-b border-slate-100">
                                 <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100">
-                                    <p className="text-[11px] font-bold text-indigo-600 mb-1">실시간 경로 추적 중</p>
-                                    <p className="text-[10px] text-slate-500 leading-relaxed">이동 중인 학생의 궤적이 지도에 표시됩니다.</p>
+                                    <p className="text-[11px] font-bold text-indigo-600 mb-1 tracking-tighter">실시간 관제 활성화</p>
+                                    <p className="text-[10px] text-slate-500">지도를 클릭하여 학생을 선택하세요.</p>
                                 </div>
                             </div>
-
                             <div className="flex-1 overflow-y-auto">
                                 {devices.map(device => (
-                                    <button 
-                                        key={device.id}
-                                        onClick={() => selectDevice(device.id)}
-                                        className={`w-full p-5 flex items-center gap-4 border-b border-slate-50 transition-all ${selectedId === device.id ? 'bg-indigo-50/50 border-l-4 border-l-indigo-600' : 'hover:bg-slate-50'}`}
-                                    >
+                                    <button key={device.id} onClick={() => {
+                                        setSelectedId(device.id);
+                                        const moveLatLng = new window.kakao.maps.LatLng(device.lat, device.lng);
+                                        mapRef.current.panTo(moveLatLng);
+                                    }} className={`w-full p-5 flex items-center gap-4 border-b border-slate-50 transition-all ${selectedId === device.id ? 'bg-indigo-50/50 border-l-4 border-l-indigo-600' : 'hover:bg-slate-50'}`}>
                                         <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold ${selectedId === device.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-400'}`}>
                                             {device.name[0]}
                                         </div>
                                         <div className="flex-1 text-left">
-                                            <div className="flex items-center justify-between mb-1">
-                                                <span className={`font-bold text-xs ${selectedId === device.id ? 'text-indigo-900' : 'text-slate-700'}`}>{device.name}</span>
-                                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${device.status === 'moving' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
-                                                    {device.status === 'moving' ? 'MOVING' : 'IDLE'}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                                                <span className="flex items-center gap-1 font-mono">{device.lat.toFixed(5)} , {device.lng.toFixed(5)}</span>
+                                            <span className={`font-bold text-xs ${selectedId === device.id ? 'text-indigo-900' : 'text-slate-700'}`}>{device.name}</span>
+                                            <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1">
+                                                <span className="font-mono">{device.lat.toFixed(4)}, {device.lng.toFixed(4)}</span>
                                             </div>
                                         </div>
                                     </button>
                                 ))}
                             </div>
                         </aside>
-
-                        {/* Main Map */}
                         <main className="flex-1 relative">
                             <div id="map"></div>
-                            
-                            {/* Overlay Stats */}
-                            <div className="absolute top-6 left-6 z-30 flex flex-col gap-3">
-                                <div className="bg-white/90 backdrop-blur shadow-xl border border-slate-200 rounded-2xl p-4 flex items-center gap-4">
-                                    <div className="flex flex-col">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Tracking Path</span>
-                                        <span className="text-xl font-black text-slate-900 uppercase">Enabled</span>
-                                    </div>
-                                    <div className="w-px h-8 bg-slate-200"></div>
-                                    <div className="flex flex-col">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Update Rate</span>
-                                        <span className="text-xl font-black text-indigo-600 tracking-tighter">3.0s</span>
-                                    </div>
-                                </div>
-                            </div>
                         </main>
                     </div>
                 </div>
