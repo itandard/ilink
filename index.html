@@ -15,39 +15,56 @@
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=173d252d4d96821fe2235b962120637b&libraries=services"></script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;900&display=swap');
-        body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; overflow: hidden; }
-        #map { width: 100%; height: 100%; background-color: #f1f5f9; }
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800;900&display=swap');
+        
+        :root {
+            --primary-blue: #2563eb;
+            --dark-slate: #0f172a;
+        }
+
+        body { 
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            overflow: hidden; 
+            letter-spacing: -0.02em;
+        }
+
+        #map { width: 100%; height: 100%; background-color: #f8fafc; }
         
         .student-label {
             position: relative;
             bottom: 45px;
-            padding: 4px 10px;
-            border-radius: 8px;
+            padding: 5px 12px;
+            border-radius: 10px;
             color: white;
-            font-size: 11px;
-            font-weight: 700;
+            font-size: 12px;
+            font-weight: 800;
             white-space: nowrap;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            transform: translateX(-50%);
         }
 
-        /* 세련된 파란색 그라데이션 배경 */
-        .login-bg {
-            background: linear-gradient(135deg, #f0f7ff 0%, #e0eefc 100%);
+        .login-gradient {
+            background: radial-gradient(circle at top right, #f8faff, #e0ebff);
             position: relative;
         }
-        .login-bg::before {
-            content: "";
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: url('https://www.transparenttextures.com/patterns/cubes.png');
-            opacity: 0.05;
-            pointer-events: none;
+
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+
+        /* 애니메이션 */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
+        .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
     </style>
 </head>
-<body class="bg-white text-slate-900">
+<body class="bg-slate-50 text-slate-900">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -64,16 +81,19 @@
         };
 
         const App = () => {
-            const [view, setView] = useState('login'); 
+            const [view, setView] = useState('login'); // login, signup, dashboard
             const [user, setUser] = useState(null);
-            const [loginInfo, setLoginInfo] = useState({ id: '', pw: '' });
             const [mapIsReady, setMapIsReady] = useState(false);
+            
+            // 로그인/회원가입 폼 상태
+            const [authForm, setAuthForm] = useState({ id: '', pw: '', name: '', school: '' });
+            const [isLoading, setIsLoading] = useState(false);
             
             // 학생 가상 데이터
             const [students, setStudents] = useState([
-                { id: 1, name: '학생 1', color: '#2563eb', lat: 35.2456, lng: 128.6922, path: [], dir: { lat: 0.0002, lng: 0.0001 } },
-                { id: 2, name: '학생 2', color: '#dc2626', lat: 35.2460, lng: 128.6930, path: [], dir: { lat: -0.0001, lng: 0.0003 } },
-                { id: 3, name: '학생 3', color: '#16a34a', lat: 35.2445, lng: 128.6910, path: [], dir: { lat: 0.0001, lng: -0.0002 } }
+                { id: 1, name: '학생 1', color: '#2563eb', lat: 35.2456, lng: 128.6922, path: [], dir: { lat: 0.00015, lng: 0.0001 } },
+                { id: 2, name: '학생 2', color: '#ef4444', lat: 35.2460, lng: 128.6930, path: [], dir: { lat: -0.0001, lng: 0.00025 } },
+                { id: 3, name: '학생 3', color: '#10b981', lat: 35.2445, lng: 128.6910, path: [], dir: { lat: 0.0001, lng: -0.00015 } }
             ]);
             
             const [selectedStudentId, setSelectedStudentId] = useState(null);
@@ -82,35 +102,72 @@
             const overlaysRef = useRef({});
             const polylineRef = useRef(null);
 
+            // 지도 초기화
             const initMap = () => {
                 const container = document.getElementById('map');
                 if (!container || mapRef.current) return;
-                const options = { center: new window.kakao.maps.LatLng(35.2456, 128.6922), level: 4 };
-                mapRef.current = new window.kakao.maps.Map(container, options);
-                setMapIsReady(true);
+                
+                window.kakao.maps.load(() => {
+                    const options = { center: new window.kakao.maps.LatLng(35.2456, 128.6922), level: 4 };
+                    mapRef.current = new window.kakao.maps.Map(container, options);
+                    setMapIsReady(true);
+                });
             };
 
+            // 로그인 처리
             const handleLogin = async (e) => {
                 e.preventDefault();
-                const { data, error } = await supabase
-                    .from('t_user')
-                    .select('*')
-                    .eq('user_id', loginInfo.id)
-                    .eq('user_pw', loginInfo.pw)
-                    .single();
+                setIsLoading(true);
+                try {
+                    const { data, error } = await supabase
+                        .from('t_user')
+                        .select('*')
+                        .eq('user_id', authForm.id)
+                        .eq('user_pw', authForm.pw)
+                        .single();
 
-                if (error || !data) return alert("아이디 또는 비밀번호가 일치하지 않습니다.");
-                
-                await supabase.from('t_login').insert([{ 
-                    user_id: loginInfo.id, 
-                    platform: 'Web', 
-                    user_agent: navigator.userAgent
-                }]);
-                
-                setUser(data);
-                setView('dashboard');
+                    if (error || !data) {
+                        alert("정보가 일치하지 않습니다.");
+                        return;
+                    }
+                    
+                    setUser(data);
+                    setView('dashboard');
+                } catch (err) {
+                    alert("통신 오류가 발생했습니다.");
+                } finally {
+                    setIsLoading(false);
+                }
             };
 
+            // 회원가입 처리 (통합)
+            const handleSignup = async (e) => {
+                e.preventDefault();
+                setIsLoading(true);
+                try {
+                    const { data, error } = await supabase.rpc('fn_insert_user', {
+                        p_user_id: authForm.id,
+                        p_user_pw: authForm.pw,
+                        p_user_name: authForm.name,
+                        p_user_school: authForm.school
+                    });
+
+                    if (error) {
+                        if (error.message.includes('ALREADY_EXISTS')) alert("이미 존재하는 아이디입니다.");
+                        else alert("오류: " + error.message);
+                        return;
+                    }
+
+                    alert("가입되었습니다! 로그인해 주세요.");
+                    setView('login');
+                } catch (err) {
+                    alert("서버 오류가 발생했습니다.");
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            // 실시간 이동 시뮬레이션
             useEffect(() => {
                 if (view !== 'dashboard' || !mapIsReady) return;
 
@@ -123,7 +180,8 @@
                         if (!markersRef.current[s.id]) {
                             const markerImg = `data:image/svg+xml;base64,${btoa(`
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <circle cx="12" cy="12" r="8" fill="${s.color}" stroke="white" stroke-width="3"/>
+                                    <circle cx="12" cy="12" r="7" fill="${s.color}" stroke="white" stroke-width="3"/>
+                                    <circle cx="12" cy="12" r="10" stroke="${s.color}" stroke-opacity="0.2" stroke-width="2"/>
                                 </svg>
                             `)}`;
                             const imageSize = new window.kakao.maps.Size(24, 24);
@@ -153,6 +211,7 @@
                 return () => clearInterval(moveInterval);
             }, [view, mapIsReady]);
 
+            // 경로 그리기 및 지도 이동
             useEffect(() => {
                 if (!mapRef.current || !mapIsReady) return;
                 if (polylineRef.current) polylineRef.current.setMap(null);
@@ -164,12 +223,12 @@
                             path: student.path,
                             strokeWeight: 4,
                             strokeColor: student.color,
-                            strokeOpacity: 0.8,
-                            strokeStyle: 'dashed'
+                            strokeOpacity: 0.6,
+                            strokeStyle: 'solid'
                         });
                         polylineRef.current.setMap(mapRef.current);
                         
-                        // 클릭 시 해당 학생 위치로 지도 중심 이동
+                        // 부드러운 화면 이동
                         const moveLatLng = new window.kakao.maps.LatLng(student.lat, student.lng);
                         mapRef.current.panTo(moveLatLng);
                     }
@@ -183,58 +242,89 @@
                             initMap();
                             clearInterval(checkKakao);
                         }
-                    }, 100);
+                    }, 200);
                     return () => clearInterval(checkKakao);
                 }
             }, [view]);
 
-            if (view === 'login') {
+            // 로그인/회원가입 공통 입력창 스타일
+            const inputClass = "w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all font-semibold text-slate-700 placeholder:text-slate-300 text-sm";
+            const labelClass = "text-[11px] font-bold text-slate-400 ml-1 uppercase tracking-widest";
+
+            if (view === 'login' || view === 'signup') {
                 return (
-                    <div className="h-screen flex items-center justify-center login-bg p-6 font-sans">
-                        <div className="bg-white/90 backdrop-blur-2xl p-10 rounded-[2.5rem] shadow-[0_40px_80px_-20px_rgba(37,99,235,0.15)] border border-blue-50 w-full max-w-[400px]">
+                    <div className="h-screen flex items-center justify-center login-gradient p-6">
+                        <div className="bg-white/80 backdrop-blur-xl p-10 rounded-[2.5rem] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.1)] border border-white/50 w-full max-w-[420px] animate-fade-in">
                             <div className="text-center mb-10">
-                                <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-4 shadow-xl shadow-blue-100">
-                                    <LucideIcon name="eye" size={32} className="text-white" />
+                                <div className="inline-flex items-center justify-center w-14 h-14 bg-slate-900 rounded-2xl mb-4 shadow-xl">
+                                    <LucideIcon name="eye" size={28} className="text-white" />
                                 </div>
-                                <h2 className="text-3xl font-black text-slate-900 tracking-tighter mb-1">EYE-LINK</h2>
-                                <p className="text-[10px] font-bold text-blue-500 uppercase tracking-[0.3em] ml-1">관제 시스템 관리자</p>
+                                <h2 className="text-2xl font-black text-slate-900 tracking-tight">EYE-LINK</h2>
+                                <p className="text-[10px] font-extrabold text-blue-600 uppercase tracking-[0.4em] mt-1">Smart Monitoring</p>
                             </div>
                             
-                            <form onSubmit={handleLogin} className="space-y-5">
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-black text-slate-400 ml-1 uppercase tracking-widest">아이디</label>
+                            <form onSubmit={view === 'login' ? handleLogin : handleSignup} className="space-y-4">
+                                {view === 'signup' && (
+                                    <div className="space-y-1">
+                                        <label className={labelClass}>관리자 이름</label>
+                                        <input 
+                                            className={inputClass} 
+                                            placeholder="실명을 입력하세요" 
+                                            value={authForm.name} 
+                                            onChange={e => setAuthForm({...authForm, name: e.target.value})} 
+                                            required 
+                                        />
+                                    </div>
+                                )}
+                                <div className="space-y-1">
+                                    <label className={labelClass}>아이디</label>
                                     <input 
-                                        className="w-full px-6 py-4 bg-blue-50/50 border border-blue-100 rounded-2xl outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-400 transition-all font-bold text-slate-700 placeholder:text-blue-200 text-sm" 
-                                        placeholder="아이디를 입력하세요" 
-                                        value={loginInfo.id} 
-                                        onChange={e => setLoginInfo({...loginInfo, id: e.target.value})} 
+                                        className={inputClass} 
+                                        placeholder="아이디" 
+                                        value={authForm.id} 
+                                        onChange={e => setAuthForm({...authForm, id: e.target.value})} 
                                         required 
                                     />
                                 </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-black text-slate-400 ml-1 uppercase tracking-widest">비밀번호</label>
+                                <div className="space-y-1">
+                                    <label className={labelClass}>비밀번호</label>
                                     <input 
                                         type="password" 
-                                        className="w-full px-6 py-4 bg-blue-50/50 border border-blue-100 rounded-2xl outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-400 transition-all font-bold text-slate-700 placeholder:text-blue-200 text-sm" 
-                                        placeholder="비밀번호를 입력하세요" 
-                                        value={loginInfo.pw} 
-                                        onChange={e => setLoginInfo({...loginInfo, pw: e.target.value})} 
+                                        className={inputClass} 
+                                        placeholder="비밀번호" 
+                                        value={authForm.pw} 
+                                        onChange={e => setAuthForm({...authForm, pw: e.target.value})} 
                                         required 
                                     />
                                 </div>
-                                <button className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 mt-4 active:scale-[0.98] text-base tracking-tight">
-                                    로그인
+                                {view === 'signup' && (
+                                    <div className="space-y-1">
+                                        <label className={labelClass}>소속 학교</label>
+                                        <input 
+                                            className={inputClass} 
+                                            placeholder="예: 석리초등학교" 
+                                            value={authForm.school} 
+                                            onChange={e => setAuthForm({...authForm, school: e.target.value})} 
+                                            required 
+                                        />
+                                    </div>
+                                )}
+                                <button 
+                                    disabled={isLoading}
+                                    className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-black transition-all shadow-lg active:scale-[0.98] mt-4 text-sm tracking-tight disabled:opacity-50"
+                                >
+                                    {isLoading ? "처리 중..." : (view === 'login' ? "로그인" : "계정 생성하기")}
                                 </button>
                             </form>
                             
-                            <div className="mt-8 pt-6 border-t border-blue-50 flex flex-col items-center gap-4">
+                            <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col items-center gap-3">
                                 <button 
-                                    onClick={() => window.location.href = 'signup.html'}
-                                    className="text-sm font-bold text-slate-400 hover:text-blue-600 transition-colors"
+                                    onClick={() => setView(view === 'login' ? 'signup' : 'login')}
+                                    className="text-xs font-bold text-slate-400 hover:text-blue-600 transition-colors"
                                 >
-                                    처음이신가요? <span className="text-blue-500 underline underline-offset-4">회원가입</span>
+                                    {view === 'login' ? "아직 계정이 없으신가요? 회원가입" : "이미 계정이 있습니다. 로그인"}
                                 </button>
-                                <p className="text-[10px] text-blue-200 font-bold tracking-widest uppercase">© 2026 EYE-LINK TECH</p>
+                                <p className="text-[10px] text-slate-300 font-bold tracking-widest uppercase">Safety & Security for Students</p>
                             </div>
                         </div>
                     </div>
@@ -242,46 +332,49 @@
             }
 
             return (
-                <div className="h-screen flex flex-col overflow-hidden bg-slate-50">
-                    <header className="h-16 border-b flex items-center justify-between px-8 bg-white shrink-0 z-10 shadow-sm">
+                <div className="h-screen flex flex-col overflow-hidden bg-slate-50 animate-fade-in">
+                    <header className="h-16 border-b flex items-center justify-between px-8 bg-white shrink-0 z-20 shadow-sm">
                         <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-100">
-                                <LucideIcon name="shield" size={16} className="text-white" />
+                            <div className="w-9 h-9 bg-slate-900 rounded-xl flex items-center justify-center shadow-lg">
+                                <LucideIcon name="shield-check" size={18} className="text-white" />
                             </div>
-                            <span className="font-black text-xl tracking-tighter text-slate-900">EYE-LINK <span className="text-blue-600">관제</span></span>
+                            <span className="font-black text-xl tracking-tighter text-slate-900">EYE-LINK <span className="text-blue-600">MONITOR</span></span>
                         </div>
                         <div className="flex items-center gap-6">
                             <div className="flex flex-col items-end">
-                                <span className="text-sm font-black text-slate-900">{user?.user_name} 관리자님</span>
-                                <span className="text-[10px] text-blue-500 font-bold uppercase tracking-tighter">{user?.user_school}</span>
+                                <span className="text-sm font-extrabold text-slate-900 leading-none mb-1">{user?.user_name} 관리자</span>
+                                <span className="text-[10px] text-blue-500 font-bold uppercase tracking-tight">{user?.user_school}</span>
                             </div>
-                            <div className="h-10 w-[1.5px] bg-slate-100"></div>
-                            <button onClick={() => setView('login')} className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all font-bold text-xs">
-                                <LucideIcon name="log-out" size={18} />
-                                <span>로그아웃</span>
+                            <div className="h-8 w-[1.5px] bg-slate-100"></div>
+                            <button onClick={() => setView('login')} className="flex items-center gap-2 text-slate-400 hover:text-red-500 transition-all font-bold text-xs uppercase tracking-tighter">
+                                <LucideIcon name="log-out" size={16} />
+                                <span>Logout</span>
                             </button>
                         </div>
                     </header>
 
                     <div className="flex-1 flex overflow-hidden">
-                        <aside className="w-72 border-r flex flex-col bg-white shrink-0 shadow-xl z-10">
-                            <div className="p-6 border-b bg-slate-50/30 flex items-center justify-between">
-                                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">실시간 학생 현황</h3>
-                                <div className="flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100">
-                                    <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
-                                    <span className="text-[9px] font-black text-emerald-600 uppercase">Live</span>
+                        <aside className="w-72 border-r flex flex-col bg-white shrink-0 z-10 shadow-[20px_0_30px_-20px_rgba(0,0,0,0.03)]">
+                            <div className="p-6 border-b flex items-center justify-between bg-slate-50/50">
+                                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em]">실시간 관제 목록</h3>
+                                <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-1 rounded-full border border-blue-100">
+                                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></div>
+                                    <span className="text-[9px] font-black text-blue-600 uppercase">Live</span>
                                 </div>
                             </div>
-                            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                            <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
                                 {students.map(s => (
                                     <button 
                                         key={s.id}
                                         onClick={() => setSelectedStudentId(s.id)}
-                                        className={`w-full flex items-center gap-4 p-5 rounded-2xl transition-all border ${selectedStudentId === s.id ? 'bg-blue-600 border-blue-600 text-white shadow-xl shadow-blue-100' : 'bg-white border-slate-100 hover:border-blue-200 hover:bg-blue-50/30'}`}
+                                        className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all border-2 ${selectedStudentId === s.id ? 'bg-blue-600 border-blue-600 text-white shadow-xl shadow-blue-200' : 'bg-white border-slate-50 hover:border-slate-200 hover:bg-slate-50'}`}
                                     >
-                                        <div className={`w-3 h-3 rounded-full border-2 ${selectedStudentId === s.id ? 'border-white' : 'border-white shadow-sm'}`} style={{ backgroundColor: s.color }}></div>
-                                        <span className="text-base font-bold tracking-tight">{s.name}</span>
-                                        {selectedStudentId === s.id && <LucideIcon name="target" size={16} className="ml-auto opacity-70" />}
+                                        <div className={`w-3.5 h-3.5 rounded-full border-2 ${selectedStudentId === s.id ? 'border-white' : 'border-white shadow-sm'}`} style={{ backgroundColor: s.color }}></div>
+                                        <div className="text-left">
+                                            <p className="text-sm font-black tracking-tight">{s.name}</p>
+                                            <p className={`text-[10px] font-bold ${selectedStudentId === s.id ? 'text-blue-100' : 'text-slate-400'}`}>정상 이동 중</p>
+                                        </div>
+                                        {selectedStudentId === s.id && <LucideIcon name="chevron-right" size={16} className="ml-auto opacity-70" />}
                                     </button>
                                 ))}
                             </div>
@@ -290,9 +383,15 @@
                         <div className="flex-1 relative">
                             <div id="map"></div>
                             <div className="absolute top-6 left-6 flex flex-col gap-3 z-10">
-                                <div className="bg-white/90 backdrop-blur-md shadow-2xl px-5 py-3 rounded-2xl border border-white flex items-center gap-3">
-                                    <div className="w-3 h-3 bg-blue-600 rounded-full animate-ping"></div>
-                                    <span className="text-xs font-black text-slate-700 uppercase tracking-tight">위치 추적 시스템 가동 중</span>
+                                <div className="bg-white/95 backdrop-blur-md shadow-2xl px-5 py-4 rounded-2xl border border-white flex items-center gap-4 animate-fade-in">
+                                    <div className="relative">
+                                        <div className="w-3 h-3 bg-blue-500 rounded-full animate-ping absolute"></div>
+                                        <div className="w-3 h-3 bg-blue-600 rounded-full relative"></div>
+                                    </div>
+                                    <div>
+                                        <p className="text-[11px] font-black text-slate-800 uppercase tracking-tighter">GPS Tracking Active</p>
+                                        <p className="text-[9px] font-bold text-slate-400">데이터 수신 주기: 3초</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
