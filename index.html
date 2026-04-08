@@ -8,6 +8,7 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@lucide/lab@latest"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=173d252d4d96821fe2235b962120637b&libraries=services"></script>
@@ -122,21 +123,40 @@
             const handleLogin = async (e) => {
                 e.preventDefault();
                 setLoading(true);
-                const { data, error } = await supabase
-                    .from('t_user')
-                    .select('*')
-                    .eq('user_id', authForm.id)
-                    .eq('user_pw', authForm.pw)
-                    .single();
+                
+                try {
+                    // 1. 사용자 인증 확인
+                    const { data, error } = await supabase
+                        .from('t_user')
+                        .select('*')
+                        .eq('user_id', authForm.id)
+                        .eq('user_pw', authForm.pw)
+                        .single();
 
-                if (data) {
-                    setUser(data);
-                    setView('main');
-                    fetchStudents();
-                } else {
-                    alert("아이디 또는 비밀번호를 확인해주세요.");
+                    if (data) {
+                        // 2. 로그인 성공 시 t_login 테이블에 기록 남기기
+                        await supabase
+                            .from('t_login')
+                            .insert([
+                                { 
+                                    user_id: authForm.id, 
+                                    login_time: new Date().toISOString(),
+                                    device_info: window.navigator.userAgent 
+                                }
+                            ]);
+
+                        setUser(data);
+                        setView('main');
+                        fetchStudents();
+                    } else {
+                        alert("아이디 또는 비밀번호를 확인해주세요.");
+                    }
+                } catch (err) {
+                    console.error("Login Error:", err);
+                    alert("로그인 처리 중 오류가 발생했습니다.");
+                } finally {
+                    setLoading(false);
                 }
-                setLoading(false);
             };
 
             const handleSignup = async (e) => {
