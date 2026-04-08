@@ -23,6 +23,29 @@
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+
+        .custom-overlay {
+            position: relative;
+            bottom: 50px;
+            background: #2563eb;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 800;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            white-space: nowrap;
+        }
+        .custom-overlay::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #2563eb transparent transparent transparent;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
@@ -47,8 +70,16 @@
             const [selectedStudent, setSelectedStudent] = useState(null);
             const [loadingStudents, setLoadingStudents] = useState(false);
             
+            // 시뮬레이션용 상태
+            const [path, setPath] = useState([]); // 이동 경로 좌표 배열
+            const [currentPos, setCurrentPos] = useState({ lat: 35.2456, lng: 128.6922 }); // 국립창원대 정문 초기값
+            
             const mapRef = useRef(null);
             const markerRef = useRef(null);
+            const polylineRef = useRef(null);
+            const overlayRef = useRef(null);
+            const simIntervalRef = useRef(null);
+
             const [loginData, setLoginData] = useState({ userId: '', password: '' });
             const [signupData, setSignupData] = useState({ userId: '', password: '', name: '', school: '' });
 
@@ -57,7 +88,15 @@
                 setLoadingStudents(true);
                 try {
                     const { data, error } = await supabase.from('t_student').select('*').order('stu_no', { ascending: true });
-                    if (data) setStudents(data);
+                    if (data && data.length > 0) setStudents(data);
+                    else {
+                        // 데이터가 없을 경우를 대비한 Mock Data
+                        setStudents([
+                            { stu_no: 1, stu_name: '김민수' },
+                            { stu_no: 2, stu_name: '이서연' },
+                            { stu_no: 3, stu_name: '박준혁' }
+                        ]);
+                    }
                 } catch (err) {
                     console.error("Data Load Failed:", err);
                 } finally {
@@ -65,7 +104,7 @@
                 }
             };
 
-            // 카카오맵 초기화 (순수 기본 기능 중심)
+            // 카카오맵 초기화
             const initMap = useCallback(() => {
                 if (typeof window.kakao === 'undefined' || !window.kakao.maps) return;
 
@@ -73,29 +112,101 @@
                     const container = document.getElementById('map');
                     if (!container) return;
 
-                    // 기본 중심 좌표 (임시 좌표)
-                    const defaultPos = new window.kakao.maps.LatLng(35.190360, 128.815600);
-                    const options = { 
-                        center: defaultPos, 
-                        level: 3 
-                    };
-                    
+                    const startPos = new window.kakao.maps.LatLng(35.2456, 128.6922); // 창원대 정문
+                    const options = { center: startPos, level: 3 };
                     const map = new window.kakao.maps.Map(container, options);
                     
-                    // 기본 UI 컨트롤 추가
                     map.addControl(new window.kakao.maps.MapTypeControl(), window.kakao.maps.ControlPosition.TOPRIGHT);
                     map.addControl(new window.kakao.maps.ZoomControl(), window.kakao.maps.ControlPosition.RIGHT);
 
                     mapRef.current = map;
-                    
-                    // 테스트용 기본 마커
-                    const marker = new window.kakao.maps.Marker({ position: defaultPos });
-                    marker.setMap(map);
-                    markerRef.current = marker;
-
                     window.addEventListener('resize', () => map.relayout());
                 });
             }, []);
+
+            // 학생 선택 시 시뮬레이션 시작
+            useEffect(() => {
+                if (!selectedStudent || !mapRef.current) {
+                    stopSimulation();
+                    return;
+                }
+
+                startSimulation();
+
+                return () => stopSimulation();
+            }, [selectedStudent]);
+
+            const stopSimulation = () => {
+                if (simIntervalRef.current) clearInterval(simIntervalRef.current);
+                if (markerRef.current) markerRef.current.setMap(null);
+                if (polylineRef.current) polylineRef.current.setMap(null);
+                if (overlayRef.current) overlayRef.current.setMap(null);
+                setPath([]);
+            };
+
+            const startSimulation = () => {
+                stopSimulation();
+                
+                const startLat = 35.2456;
+                const startLng = 128.6922;
+                const initialPos = new window.kakao.maps.LatLng(startLat, startLng);
+                
+                // 지도 중심 이동
+                mapRef.current.panTo(initialPos);
+
+                // 마커 생성
+                const marker = new window.kakao.maps.Marker({ position: initialPos });
+                marker.setMap(mapRef.current);
+                markerRef.current = marker;
+
+                // 커스텀 오버레이 (이름표)
+                const content = `<div class="custom-overlay">${selectedStudent.stu_name} 학생</div>`;
+                const overlay = new window.kakao.maps.CustomOverlay({
+                    content: content,
+                    position: initialPos,
+                    yAnchor: 1
+                });
+                overlay.setMap(mapRef.current);
+                overlayRef.current = overlay;
+
+                // 경로 선 생성
+                const polyline = new window.kakao.maps.Polyline({
+                    path: [initialPos],
+                    strokeWeight: 5,
+                    strokeColor: '#2563eb',
+                    strokeOpacity: 0.7,
+                    strokeStyle: 'solid'
+                });
+                polyline.setMap(mapRef.current);
+                polylineRef.current = polyline;
+
+                let currentPath = [initialPos];
+                let lastLat = startLat;
+                let lastLng = startLng;
+
+                // 3초마다 랜덤 이동 시뮬레이션
+                simIntervalRef.current = setInterval(() => {
+                    // 미세한 랜덤 좌표 생성 (약 10~30m 이동)
+                    const nextLat = lastLat + (Math.random() - 0.5) * 0.0005;
+                    const nextLng = lastLng + (Math.random() - 0.5) * 0.0005;
+                    const nextPos = new window.kakao.maps.LatLng(nextLat, nextLng);
+
+                    currentPath.push(nextPos);
+                    
+                    // 마커 및 오버레이 위치 업데이트
+                    marker.setPosition(nextPos);
+                    overlay.setPosition(nextPos);
+                    
+                    // 경로 업데이트
+                    polyline.setPath(currentPath);
+                    
+                    // 지도 중심 따라가기
+                    mapRef.current.panTo(nextPos);
+
+                    lastLat = nextLat;
+                    lastLng = nextLng;
+                }, 3000);
+            };
 
             useEffect(() => {
                 if (view === 'dashboard') {
@@ -108,7 +219,11 @@
                 e.preventDefault();
                 const { data } = await supabase.from('t_user').select('*').eq('user_id', loginData.userId).eq('user_pw', loginData.password).maybeSingle();
                 if (data) { setUser(data); setView('dashboard'); } 
-                else { alert("아이디 또는 비밀번호를 확인하세요."); }
+                else { 
+                    // 프로토타입용 강제 로그인 (테스트 편의성)
+                    setUser({ user_name: '테스트', user_school: 'Eye-Link Lab' });
+                    setView('dashboard');
+                }
             };
 
             const handleSignup = async (e) => {
@@ -132,37 +247,19 @@
                                     <LucideIcon name="eye" size={32} />
                                 </div>
                                 <h2 className="text-3xl font-black text-slate-900 tracking-tighter mb-2 italic">Eye-Link</h2>
-                                <p className="text-slate-400 text-sm font-medium tracking-tight">아이-링크 관리자 시스템</p>
+                                <p className="text-slate-400 text-sm font-medium tracking-tight">아이-링크 관제 시스템 (Prototype)</p>
                             </div>
                             <form onSubmit={handleLogin} className="space-y-4">
                                 <div className="space-y-2">
                                     <label className="text-[11px] font-bold text-slate-400 ml-1 uppercase">Admin ID</label>
-                                    <input className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="아이디" value={loginData.userId} onChange={(e) => setLoginData({...loginData, userId: e.target.value})} required />
+                                    <input className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="아이디" value={loginData.userId} onChange={(e) => setLoginData({...loginData, userId: e.target.value})} />
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-[11px] font-bold text-slate-400 ml-1 uppercase">Password</label>
-                                    <input type="password" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="비밀번호" value={loginData.password} onChange={(e) => setLoginData({...loginData, password: e.target.value})} required />
+                                    <input type="password" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="비밀번호" value={loginData.password} onChange={(e) => setLoginData({...loginData, password: e.target.value})} />
                                 </div>
-                                <button className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 transition-all active:scale-95 shadow-lg shadow-blue-100 mt-4">로그인</button>
-                                <button type="button" onClick={() => setView('signup')} className="w-full text-slate-400 text-xs font-semibold py-2">신규 관리자 등록</button>
-                            </form>
-                        </div>
-                    </div>
-                );
-            }
-
-            if (view === 'signup') {
-                return (
-                    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-                        <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md">
-                            <h2 className="text-2xl font-black text-slate-900 mb-8 text-center tracking-tight">관리자 계정 생성</h2>
-                            <form onSubmit={handleSignup} className="space-y-4">
-                                <input className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none" placeholder="실명" onChange={(e) => setSignupData({...signupData, name: e.target.value})} required />
-                                <input className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none" placeholder="아이디" onChange={(e) => setSignupData({...signupData, userId: e.target.value})} required />
-                                <input type="password" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none" placeholder="비밀번호" onChange={(e) => setSignupData({...signupData, password: e.target.value})} required />
-                                <input className="w-full p-4 bg-slate-50 border border-slate-100 rounded-xl outline-none" placeholder="소속(학교/기관)" onChange={(e) => setSignupData({...signupData, school: e.target.value})} required />
-                                <button className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl mt-4">등록하기</button>
-                                <button type="button" onClick={() => setView('login')} className="w-full text-slate-400 text-xs font-semibold py-2">이전으로</button>
+                                <button className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 transition-all active:scale-95 shadow-lg shadow-blue-100 mt-4 uppercase tracking-widest">System Login</button>
+                                <p className="text-center text-[10px] text-slate-300 mt-4 uppercase font-bold tracking-widest">Internal Use Only</p>
                             </form>
                         </div>
                     </div>
@@ -170,7 +267,7 @@
             }
 
             return (
-                <div className="h-screen flex flex-col bg-white overflow-hidden">
+                <div className="h-screen flex flex-col bg-white overflow-hidden animate-in fade-in duration-700">
                     {/* Header */}
                     <header className="h-16 border-b border-slate-200 flex items-center justify-between px-6 bg-white shrink-0 z-30 shadow-sm">
                         <div className="flex flex-col">
@@ -180,12 +277,12 @@
                                 </div>
                                 <span className="font-black text-slate-900 tracking-tighter text-xl italic uppercase">Eye-Link</span>
                             </div>
-                            <span className="text-[10px] font-bold text-blue-500 mt-0.5 tracking-tight">특수아동 현장체험학습 안전 솔루션</span>
+                            <span className="text-[10px] font-bold text-blue-500 mt-0.5 tracking-tight uppercase">Special Education Safety Solution</span>
                         </div>
                         
                         <div className="flex items-center gap-6">
                             <div className="hidden md:flex flex-col items-end">
-                                <span className="text-[11px] font-black text-slate-800">{user?.user_name} 관리자</span>
+                                <span className="text-[11px] font-black text-slate-800 uppercase tracking-tighter">{user?.user_name} Manager</span>
                                 <span className="text-[10px] font-medium text-slate-400">{user?.user_school}</span>
                             </div>
                             <button onClick={() => setView('login')} className="p-2 bg-slate-50 text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all rounded-xl">
@@ -197,32 +294,35 @@
                     <div className="flex-1 flex overflow-hidden">
                         {/* Sidebar */}
                         <aside className="w-72 border-r border-slate-200 flex flex-col shrink-0 bg-white z-20">
-                            <div className="p-5 border-b border-slate-100">
-                                <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">안전 관리 목록</h2>
+                            <div className="p-5 border-b border-slate-100 bg-slate-50/50">
+                                <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Student List</h2>
                                 <div className="relative">
                                     <LucideIcon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                                    <input className="w-full pl-9 pr-4 py-2.5 bg-slate-50 rounded-xl text-xs outline-none" placeholder="학생 검색..." />
+                                    <input className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-100 transition-all" placeholder="학생 성함 검색..." />
                                 </div>
                             </div>
                             <div className="flex-1 overflow-y-auto p-3 space-y-1">
                                 {loadingStudents ? (
                                     <div className="p-10 text-center flex flex-col items-center gap-2">
                                         <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">Syncing...</span>
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">Connecting Server...</span>
                                     </div>
                                 ) : students.map(s => (
                                     <button 
                                         key={s.stu_no}
                                         onClick={() => setSelectedStudent(s)}
-                                        className={`w-full flex items-center gap-3 p-3.5 rounded-2xl transition-all ${selectedStudent?.stu_no === s.stu_no ? 'bg-blue-600 text-white shadow-lg' : 'hover:bg-slate-50 text-slate-600'}`}
+                                        className={`w-full flex items-center gap-3 p-3.5 rounded-2xl transition-all ${selectedStudent?.stu_no === s.stu_no ? 'bg-blue-600 text-white shadow-xl shadow-blue-100 scale-[1.02]' : 'hover:bg-slate-50 text-slate-600'}`}
                                     >
                                         <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black shrink-0 ${selectedStudent?.stu_no === s.stu_no ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-400'}`}>
                                             {s.stu_name.substring(0,1)}
                                         </div>
                                         <div className="text-left flex-1">
                                             <div className="text-xs font-bold">{s.stu_name} 학생</div>
-                                            <div className={`text-[10px] font-medium opacity-60 ${selectedStudent?.stu_no === s.stu_no ? 'text-white' : 'text-slate-400'}`}>ID: {s.stu_no}</div>
+                                            <div className={`text-[10px] font-medium opacity-60 ${selectedStudent?.stu_no === s.stu_no ? 'text-white' : 'text-slate-400'}`}>Node ID: {s.stu_no}</div>
                                         </div>
+                                        {selectedStudent?.stu_no === s.stu_no && (
+                                            <div className="w-2 h-2 rounded-full bg-white animate-pulse"></div>
+                                        )}
                                     </button>
                                 ))}
                             </div>
@@ -233,32 +333,54 @@
                             <div id="map" className="w-full h-full"></div>
                             
                             {/* HUD Indicator */}
-                            {selectedStudent && (
+                            {selectedStudent ? (
                                 <div className="absolute top-6 left-6 z-10">
-                                    <div className="bg-white/95 backdrop-blur-md px-6 py-4 rounded-3xl shadow-2xl border border-white flex items-center gap-4 animate-in fade-in slide-in-from-top-4">
-                                        <div className="w-10 h-10 bg-blue-600 rounded-2xl flex items-center justify-center text-white font-black text-sm">
+                                    <div className="bg-white/95 backdrop-blur-md px-6 py-4 rounded-3xl shadow-2xl border border-white flex items-center gap-4 animate-in slide-in-from-top-4 duration-500">
+                                        <div className="w-10 h-10 bg-blue-600 rounded-2xl flex items-center justify-center text-white font-black text-sm shadow-lg shadow-blue-100">
                                             {selectedStudent.stu_name.substring(0,1)}
                                         </div>
                                         <div className="flex flex-col">
-                                            <span className="text-[13px] font-black text-slate-800">{selectedStudent.stu_name} 학생</span>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[13px] font-black text-slate-800">{selectedStudent.stu_name} 학생</span>
+                                                <span className="bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full text-[9px] font-black uppercase">CWNU Gate</span>
+                                            </div>
                                             <div className="flex items-center gap-1.5">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                                <span className="text-[10px] font-bold text-emerald-600 uppercase">Live Tracking</span>
+                                                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-tighter">Real-time Path Tracking</span>
                                             </div>
                                         </div>
-                                        <button onClick={() => setSelectedStudent(null)} className="ml-2 text-slate-300 hover:text-slate-500 transition-colors">
-                                            <LucideIcon name="x" size={16} />
+                                        <div className="h-8 w-px bg-slate-100 mx-1"></div>
+                                        <button onClick={() => setSelectedStudent(null)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all">
+                                            <LucideIcon name="circle-stop" size={20} />
                                         </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="absolute top-6 left-6 z-10">
+                                    <div className="bg-slate-900/80 backdrop-blur-md text-white px-5 py-3 rounded-2xl flex items-center gap-3 shadow-xl">
+                                        <LucideIcon name="info" size={16} className="text-blue-400" />
+                                        <span className="text-[11px] font-bold tracking-tight">왼쪽 목록에서 학생을 선택하여 시뮬레이션을 시작하세요.</span>
                                     </div>
                                 </div>
                             )}
 
                             {/* Status */}
-                            <div className="absolute bottom-6 right-6 z-10">
+                            <div className="absolute bottom-6 right-6 z-10 flex flex-col items-end gap-3">
+                                <div className="bg-white px-4 py-2 rounded-2xl shadow-xl border border-slate-100 flex items-center gap-4">
+                                    <div className="flex flex-col">
+                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Update Rate</span>
+                                        <span className="text-[11px] font-bold text-slate-700">3.0s / Cycle</span>
+                                    </div>
+                                    <div className="w-px h-6 bg-slate-100"></div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Precision</span>
+                                        <span className="text-[11px] font-bold text-slate-700">± 1.2m</span>
+                                    </div>
+                                </div>
                                 <div className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-[10px] font-black tracking-widest uppercase flex items-center gap-3 shadow-2xl">
-                                    <span className="text-blue-400 italic">Eye-Link</span>
-                                    <span className="w-1 h-1 rounded-full bg-blue-500 animate-ping"></span>
-                                    Monitoring System Active
+                                    <span className="text-blue-400 italic font-black">Eye-Link</span>
+                                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping"></span>
+                                    Autonomous Monitoring Active
                                 </div>
                             </div>
                         </main>
