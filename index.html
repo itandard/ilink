@@ -11,25 +11,22 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
-    <!-- 카카오맵 API (본인 키 사용) - autoload=false 유지 -->
+    <!-- Kakao Map API -->
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=173d252d4d96821fe2235b962120637b&libraries=services&autoload=false"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;900&display=swap');
         body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; }
-        #map { width: 100%; height: 100%; min-height: 400px; background-color: #f1f5f9; }
-        
-        .animate-fade-in { animation: fadeIn 0.3s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
-
-        /* 지도 미로드 시 배경 스타일 */
-        .map-placeholder {
-            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
-            background-size: 20px 20px;
+        #map { width: 100%; height: 100%; background-color: #f8fafc; }
+        .map-error-overlay {
+            position: absolute;
+            inset: 0;
+            background: #f1f5f9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
         }
     </style>
 </head>
@@ -39,12 +36,10 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // Supabase 설정
         const SUPABASE_URL = "https://wedgzkwlkouheqfktskl.supabase.co"; 
         const SUPABASE_ANON_KEY = "sb_publishable_OY6cu-DKhs1QuXJUCu0g4g_YwsRZNc-"; 
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // Lucide 아이콘 컴포넌트
         const LucideIcon = ({ name, size = 18, className = "" }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name, size]);
             return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
@@ -53,48 +48,99 @@
         const App = () => {
             const [view, setView] = useState('login');
             const [user, setUser] = useState(null);
-            const [loading, setLoading] = useState(false);
-            const [mapStatus, setMapStatus] = useState('loading'); // 'loading' | 'ready' | 'error'
+            const [mapError, setMapError] = useState(null);
+            const [isMapLoaded, setIsMapLoaded] = useState(false);
             
-            const [formData, setFormData] = useState({
-                userId: '',
-                password: '',
-                userName: '',
-                schoolName: ''
-            });
+            // 지도 관련 Ref
+            const mapRef = useRef(null);
+            const markerRef = useRef(null);
 
-            const mapInstance = useRef(null);
+            // 입력 폼 상태
+            const [formData, setFormData] = useState({ userId: '', password: '' });
+            const [gpsInput, setGpsInput] = useState({ lat: '35.190360', lng: '128.815600' });
+            const [isSending, setIsSending] = useState(false);
 
-            // 회원가입
-            const handleSignUp = async (e) => {
-                e.preventDefault();
-                setLoading(true);
-                try {
-                    const { data, error } = await supabase.rpc('fn_insert_user', {
-                        p_user_id: formData.userId,
-                        p_user_pw: formData.password,
-                        p_user_name: formData.userName,
-                        p_user_school: formData.schoolName
-                    });
-                    
-                    if (error) {
-                        if (error.message.includes('ALREADY_EXISTS')) throw new Error("이미 존재하는 아이디입니다.");
-                        throw error;
+            // 지도 초기화 함수
+            const initMap = () => {
+                if (typeof window.kakao === 'undefined') {
+                    setMapError("Kakao SDK가 로드되지 않았습니다.");
+                    return;
+                }
+
+                window.kakao.maps.load(() => {
+                    try {
+                        const container = document.getElementById('map');
+                        if (!container) return;
+
+                        const options = {
+                            center: new window.kakao.maps.LatLng(parseFloat(gpsInput.lat), parseFloat(gpsInput.lng)),
+                            level: 3
+                        };
+                        const map = new window.kakao.maps.Map(container, options);
+                        mapRef.current = map;
+                        
+                        // 마커 초기화
+                        const marker = new window.kakao.maps.Marker({
+                            position: options.center
+                        });
+                        marker.setMap(map);
+                        markerRef.current = marker;
+
+                        // 컨트롤 추가
+                        map.addControl(new window.kakao.maps.MapTypeControl(), window.kakao.maps.ControlPosition.TOPRIGHT);
+                        map.addControl(new window.kakao.maps.ZoomControl(), window.kakao.maps.ControlPosition.RIGHT);
+
+                        setIsMapLoaded(true);
+                        setMapError(null);
+                    } catch (err) {
+                        setMapError("지도 생성 중 오류: " + err.message);
                     }
-                    
-                    alert("관리자 등록 성공! 로그인 해주세요.");
-                    setView('login');
+                });
+            };
+
+            // 로그인 이후 지도 초기화 실행
+            useEffect(() => {
+                if (view === 'dashboard') {
+                    const timer = setTimeout(initMap, 500);
+                    return () => clearTimeout(timer);
+                }
+            }, [view]);
+
+            // 위치 수동 업데이트 및 DB 저장
+            const updateLocation = async () => {
+                if (!mapRef.current || !markerRef.current) return;
+
+                const newLat = parseFloat(gpsInput.lat);
+                const newLng = parseFloat(gpsInput.lng);
+                const newPos = new window.kakao.maps.LatLng(newLat, newLng);
+
+                // 1. 지도 이동 및 마커 업데이트
+                mapRef.current.panTo(newPos);
+                markerRef.current.setPosition(newPos);
+
+                // 2. Supabase에 데이터 저장 시도 (실습용)
+                setIsSending(true);
+                try {
+                    const { error } = await supabase
+                        .from('gps_logs') // 실제 테이블명이 gps_logs라고 가정
+                        .insert([
+                            { 
+                                device_id: 'MANUAL_TEST', 
+                                latitude: newLat, 
+                                longitude: newLng,
+                                user_id: user?.user_id 
+                            }
+                        ]);
+                    if (error) console.error("DB 저장 실패:", error.message);
                 } catch (err) {
-                    alert(err.message);
+                    console.error("전송 오류:", err);
                 } finally {
-                    setLoading(false);
+                    setIsSending(false);
                 }
             };
 
-            // 로그인
             const handleLogin = async (e) => {
                 e.preventDefault();
-                setLoading(true);
                 try {
                     const { data, error } = await supabase
                         .from('t_user')
@@ -103,126 +149,39 @@
                         .eq('user_pw', formData.password)
                         .maybeSingle();
 
-                    if (error) throw error;
-                    if (!data) throw new Error("정보가 일치하지 않습니다.");
-
-                    setUser(data);
-                    setView('dashboard');
-                } catch (err) {
-                    alert(err.message);
-                } finally {
-                    setLoading(false);
-                }
-            };
-
-            // 지도 초기화 로직 (Canvas 환경 대응 강화)
-            const initKakaoMap = () => {
-                if (!window.kakao || !window.kakao.maps) {
-                    setMapStatus('error');
-                    return;
-                }
-
-                window.kakao.maps.load(() => {
-                    const container = document.getElementById('map');
-                    if (!container) return;
-
-                    try {
-                        const options = { 
-                            center: new window.kakao.maps.LatLng(35.190360, 128.815600), 
-                            level: 4 
-                        };
-                        mapInstance.current = new window.kakao.maps.Map(container, options);
-                        
-                        // 마커 추가 테스트
-                        const marker = new window.kakao.maps.Marker({
-                            position: options.center
-                        });
-                        marker.setMap(mapInstance.current);
-                        
-                        setMapStatus('ready');
-                    } catch (e) {
-                        console.error("Map Init Error:", e);
-                        setMapStatus('error');
+                    if (data) {
+                        setUser(data);
+                        setView('dashboard');
+                    } else {
+                        alert("회원 정보를 찾을 수 없습니다.");
                     }
-                });
-            };
-
-            useEffect(() => {
-                if (view === 'dashboard') {
-                    // DOM이 렌더링된 후 지도를 그리기 위해 약간의 지연시간을 둠
-                    const timer = setTimeout(initKakaoMap, 300);
-                    return () => clearTimeout(timer);
+                } catch (err) {
+                    alert("로그인 중 오류 발생");
                 }
-            }, [view]);
-
-            const handleChange = (e) => {
-                const { id, value } = e.target;
-                setFormData(prev => ({ ...prev, [id]: value }));
             };
 
             if (view === 'login') {
                 return (
-                    <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] p-6 animate-fade-in">
-                        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-xl p-10 border border-slate-200 relative overflow-hidden">
-                            <div className="absolute top-0 left-0 w-full h-2 bg-indigo-600"></div>
-                            <div className="flex flex-col items-center mb-10">
-                                <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 mb-4 shadow-sm">
-                                    <LucideIcon name="shield-check" size={32} />
-                                </div>
-                                <h2 className="text-2xl font-black text-slate-800 tracking-tight">관제 시스템 로그인</h2>
-                            </div>
-
-                            <form onSubmit={handleLogin} className="space-y-5">
-                                <div className="space-y-1">
-                                    <label className="text-[11px] font-bold text-slate-400 ml-1 uppercase tracking-widest">ID</label>
-                                    <input type="text" id="userId" placeholder="아이디" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium" value={formData.userId} onChange={handleChange} required />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[11px] font-bold text-slate-400 ml-1 uppercase tracking-widest">Password</label>
-                                    <input type="password" id="password" placeholder="••••••••" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={formData.password} onChange={handleChange} required />
-                                </div>
-                                <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl hover:bg-indigo-700 transition-all shadow-lg active:scale-[0.98]">
-                                    {loading ? '로그인 중...' : '접속하기'}
+                    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
+                        <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-sm border border-slate-200">
+                            <h2 className="text-2xl font-black mb-6 text-center text-slate-800">GPS Control</h2>
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                <input 
+                                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500"
+                                    placeholder="아이디"
+                                    value={formData.userId}
+                                    onChange={(e) => setFormData({...formData, userId: e.target.value})}
+                                />
+                                <input 
+                                    type="password"
+                                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500"
+                                    placeholder="비밀번호"
+                                    value={formData.password}
+                                    onChange={(e) => setFormData({...formData, password: e.target.value})}
+                                />
+                                <button className="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl hover:bg-indigo-700 transition-all shadow-lg">
+                                    로그인
                                 </button>
-                            </form>
-                            <div className="mt-8 text-center">
-                                <button onClick={() => setView('signup')} className="text-sm text-indigo-600 font-bold hover:underline underline-offset-4">신규 관리자 등록</button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-
-            if (view === 'signup') {
-                return (
-                    <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5] p-6 animate-fade-in">
-                        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-xl p-10 border border-slate-200 relative overflow-hidden">
-                            <div className="absolute top-0 left-0 w-full h-2 bg-slate-800"></div>
-                            <h2 className="text-2xl font-black text-slate-800 mb-2 text-center tracking-tight">관리자 등록</h2>
-                            <p className="text-slate-400 text-center text-xs mb-8 font-medium">관리자 권한을 생성합니다.</p>
-                            
-                            <form onSubmit={handleSignUp} className="space-y-4">
-                                <div className="space-y-1">
-                                    <label className="text-[11px] font-bold text-slate-400 ml-1 uppercase">이름</label>
-                                    <input type="text" id="userName" placeholder="실명 입력" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm focus:ring-2 focus:ring-slate-800 transition-all" value={formData.userName} onChange={handleChange} required />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[11px] font-bold text-slate-400 ml-1 uppercase">아이디</label>
-                                    <input type="text" id="userId" placeholder="아이디 설정" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm focus:ring-2 focus:ring-slate-800 transition-all" value={formData.userId} onChange={handleChange} required />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[11px] font-bold text-slate-400 ml-1 uppercase">비밀번호</label>
-                                    <input type="password" id="password" placeholder="비밀번호 설정" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm focus:ring-2 focus:ring-slate-800 transition-all" value={formData.password} onChange={handleChange} required />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-[11px] font-bold text-slate-400 ml-1 uppercase">학교명</label>
-                                    <input type="text" id="schoolName" placeholder="소속 학교명" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm focus:ring-2 focus:ring-slate-800 transition-all" value={formData.schoolName} onChange={handleChange} required />
-                                </div>
-
-                                <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl mt-6 hover:bg-black transition-all shadow-xl active:scale-[0.98]">
-                                    {loading ? '처리 중...' : '계정 생성하기'}
-                                </button>
-                                <button type="button" onClick={() => setView('login')} className="w-full text-slate-400 text-xs font-bold py-2 hover:text-slate-600">이미 계정이 있습니다</button>
                             </form>
                         </div>
                     </div>
@@ -230,74 +189,82 @@
             }
 
             return (
-                <div className="h-screen flex flex-col bg-white overflow-hidden animate-fade-in">
-                    <header className="h-16 border-b border-slate-200 flex items-center justify-between px-8 bg-white shrink-0 z-10 shadow-sm">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-100"><LucideIcon name="satellite" size={20} /></div>
-                            <h1 className="font-black text-slate-800 text-lg tracking-tighter uppercase">GPS Control</h1>
+                <div className="h-screen flex flex-col overflow-hidden bg-white">
+                    <header className="h-16 border-b border-slate-200 flex items-center justify-between px-6 bg-white z-20">
+                        <div className="flex items-center gap-2">
+                            <LucideIcon name="map-pin" className="text-indigo-600" />
+                            <h1 className="font-black text-slate-800 uppercase tracking-tighter">GPS Monitoring</h1>
                         </div>
                         <div className="flex items-center gap-4">
-                            <div className="text-right">
-                                <div className="text-xs font-bold text-slate-800">{user?.user_name}님</div>
-                                <div className="text-[10px] text-slate-400 font-medium uppercase tracking-tight">{user?.user_school}</div>
+                            <div className="text-xs font-bold text-slate-500 uppercase tracking-widest bg-slate-100 px-3 py-1 rounded-full">
+                                {user?.user_school} | {user?.user_name}
                             </div>
-                            <button onClick={() => { setUser(null); setView('login'); }} className="text-rose-500 font-bold text-xs p-2 hover:bg-rose-50 rounded-lg transition-colors">로그아웃</button>
+                            <button onClick={() => setView('login')} className="text-slate-400 hover:text-rose-500 transition-colors">
+                                <LucideIcon name="log-out" size={18} />
+                            </button>
                         </div>
                     </header>
-                    <div className="flex-1 flex overflow-hidden">
-                        <aside className="w-80 border-r border-slate-200 bg-white flex flex-col shrink-0">
-                            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                                <h2 className="font-bold text-slate-800 text-sm">관제 리스트</h2>
-                                <span className="bg-emerald-100 text-emerald-600 text-[10px] font-black px-2 py-0.5 rounded-full">LIVE</span>
-                            </div>
-                            <div className="flex-1 overflow-y-auto">
-                                <div className="p-5 border-b border-slate-50 bg-slate-50/50">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <span className="font-bold text-sm text-slate-700">테스트 장비 01</span>
-                                        <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                                    </div>
-                                    <p className="text-[11px] text-slate-400">마지막 수신: 방금 전</p>
-                                </div>
-                                <div className="p-8 text-center">
-                                    <p className="text-xs text-slate-300 italic">추가 장비를 연결하세요</p>
-                                </div>
-                            </div>
-                        </aside>
-                        <main className="flex-1 relative">
-                            {/* 지도 컨테이너 */}
-                            <div id="map" className="w-full h-full relative">
-                                {mapStatus !== 'ready' && (
-                                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center map-placeholder text-slate-400">
-                                        <LucideIcon name={mapStatus === 'error' ? 'alert-triangle' : 'map'} size={48} className="mb-4 opacity-30" />
-                                        <p className="font-bold text-slate-600">{mapStatus === 'error' ? '지도를 불러올 수 없습니다' : '지도를 준비 중입니다...'}</p>
-                                        <p className="text-[11px] mt-1 text-slate-400">
-                                            {mapStatus === 'error' ? 'GitHub Pages에서는 정상적으로 작동합니다.' : '잠시만 기다려주세요.'}
-                                        </p>
-                                        {mapStatus === 'error' && (
-                                            <button 
-                                                onClick={initKakaoMap}
-                                                className="mt-6 px-4 py-2 bg-white border border-slate-200 rounded-full text-xs font-bold text-indigo-600 shadow-sm hover:bg-slate-50 transition-colors"
-                                            >
-                                                지도 다시 로드하기
-                                            </button>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
 
-                            <div className="absolute bottom-6 left-6 z-30 bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-2xl border border-slate-200 w-64">
-                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                    <LucideIcon name="database" size={14} /> Status
-                                </h3>
-                                <div className="space-y-2">
-                                    <div className="flex justify-between text-xs font-bold">
-                                        <span className="text-slate-400">Lat</span>
-                                        <span className="text-slate-700 font-mono">35.190360</span>
+                    <div className="flex-1 flex relative">
+                        {/* 지도 영역 */}
+                        <main className="flex-1 relative bg-slate-50">
+                            <div id="map" className="w-full h-full"></div>
+                            
+                            {mapError && (
+                                <div className="map-error-overlay p-8 text-center">
+                                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 max-w-sm">
+                                        <LucideIcon name="alert-circle" size={40} className="text-rose-500 mx-auto mb-4" />
+                                        <h3 className="font-bold text-slate-800 mb-2">지도를 불러올 수 없음</h3>
+                                        <p className="text-xs text-slate-500 mb-6 font-mono bg-slate-50 p-2 rounded">도메인 설정 및 App Key를 확인해주세요.</p>
+                                        <button 
+                                            onClick={initMap}
+                                            className="w-full bg-slate-800 text-white text-xs font-bold py-3 rounded-xl hover:bg-black transition-all"
+                                        >
+                                            다시 시도
+                                        </button>
                                     </div>
-                                    <div className="flex justify-between text-xs font-bold">
-                                        <span className="text-slate-400">Lng</span>
-                                        <span className="text-slate-700 font-mono">128.815600</span>
+                                </div>
+                            )}
+
+                            {!isMapLoaded && !mapError && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-slate-50 z-10">
+                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                                </div>
+                            )}
+
+                            {/* 실습용 좌표 입력 패널 (하단 오버레이) */}
+                            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 w-full max-w-xl px-4">
+                                <div className="bg-white/90 backdrop-blur-md p-6 rounded-3xl shadow-2xl border border-slate-200 flex flex-col md:flex-row items-end gap-4">
+                                    <div className="flex-1 grid grid-cols-2 gap-3 w-full">
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">Latitude (위도)</label>
+                                            <input 
+                                                type="number"
+                                                step="0.000001"
+                                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-mono"
+                                                value={gpsInput.lat}
+                                                onChange={(e) => setGpsInput({...gpsInput, lat: e.target.value})}
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">Longitude (경도)</label>
+                                            <input 
+                                                type="number"
+                                                step="0.000001"
+                                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-mono"
+                                                value={gpsInput.lng}
+                                                onChange={(e) => setGpsInput({...gpsInput, lng: e.target.value})}
+                                            />
+                                        </div>
                                     </div>
+                                    <button 
+                                        onClick={updateLocation}
+                                        disabled={isSending}
+                                        className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg flex items-center gap-2 whitespace-nowrap active:scale-95 disabled:opacity-50"
+                                    >
+                                        <LucideIcon name={isSending ? "refresh-cw" : "navigation"} size={16} className={isSending ? "animate-spin" : ""} />
+                                        위치 업데이트
+                                    </button>
                                 </div>
                             </div>
                         </main>
