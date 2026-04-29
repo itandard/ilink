@@ -1,399 +1,357 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Eye, 
-  User, 
-  Lock, 
-  LogOut, 
-  Plus, 
-  Minus, 
-  Locate, 
-  Map as MapIcon, 
-  Database, 
-  RefreshCw,
-  ChevronRight,
-  Satellite,
-  Clock
-} from 'lucide-react';
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>아이-링크(Eye-Link) | 안전 솔루션</title>
+    <!-- 외부 라이브러리 로드 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=173d252d4d96821fe2235b962120637b&libraries=services"></script>
 
-/**
- * 캔버스 환경에서 @supabase/supabase-js 임포트 에러를 방지하기 위해 
- * window.supabase 전역 객체를 사용합니다. 
- * (HTML 헤더에 script 태그가 포함되어 있어야 함)
- */
-const SUPABASE_URL = "https://wedgzkwlkouheqfktskl.supabase.co"; 
-const SUPABASE_ANON_KEY = "sb_publishable_OY6cu-DKhs1QuXJUCu0g4g_YwsRZNc-"; 
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
+        body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; background-color: #f8fafc; }
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
 
-// 초기화 로직 (전역 객체 확인 후 생성)
-const getSupabaseClient = () => {
-  if (window.supabase) {
-    return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  }
-  return null;
-};
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
 
-const App = () => {
-    const [view, setView] = useState('login'); 
-    const [activeTab, setActiveTab] = useState('map'); // 'map' or 'logs'
-    const [user, setUser] = useState(null);
-    const [students, setStudents] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [gpsLogs, setGpsLogs] = useState([]);
-    const [logsLoading, setLogsLoading] = useState(false);
-    
-    const [authForm, setAuthForm] = useState({ id: '', pw: '' });
-    
-    const mapInstance = useRef(null);
-    const overlays = useRef({}); 
-    const paths = useRef({});
-    const supabaseRef = useRef(null);
+        // Supabase 설정
+        const SUPABASE_URL = "https://wedgzkwlkouheqfktskl.supabase.co"; 
+        const SUPABASE_ANON_KEY = "sb_publishable_OY6cu-DKhs1QuXJUCu0g4g_YwsRZNc-"; 
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // 컴포넌트 마운트 시 Supabase 클라이언트 초기화
-    useEffect(() => {
-        supabaseRef.current = getSupabaseClient();
-    }, []);
-
-    // 실시간 이동 시뮬레이션
-    useEffect(() => {
-        if (view === 'main' && students.length > 0 && activeTab === 'map') {
-            const moveInterval = setInterval(() => {
-                setStudents(prev => prev.map(s => {
-                    const deltaLat = (Math.random() - 0.5) * 0.0004;
-                    const deltaLng = (Math.random() - 0.5) * 0.0004;
-                    const newLat = s.lat + deltaLat;
-                    const newLng = s.lng + deltaLng;
-                    
-                    if (window.kakao && window.kakao.maps) {
-                        const newPos = new window.kakao.maps.LatLng(newLat, newLng);
-                        const newHistory = [...(s.history || []), newPos].slice(-100);
-                        return { ...s, lat: newLat, lng: newLng, history: newHistory };
-                    }
-                    return s;
-                }));
-            }, 5000);
-            return () => clearInterval(moveInterval);
-        }
-    }, [view, students.length, activeTab]);
-
-    // 지도 초기화
-    useEffect(() => {
-        if (view === 'main' && activeTab === 'map') {
-            const timer = setTimeout(() => {
-                const container = document.getElementById('map');
-                if (container && !mapInstance.current && window.kakao) {
-                    const options = {
-                        center: new window.kakao.maps.LatLng(35.2456, 128.6922),
-                        level: 4
-                    };
-                    mapInstance.current = new window.kakao.maps.Map(container, options);
-                    if (students.length > 0) setStudents(prev => [...prev]);
-                }
-            }, 100);
-            return () => clearTimeout(timer);
-        }
-    }, [view, activeTab]);
-
-    // 마커 업데이트
-    useEffect(() => {
-        if (mapInstance.current && students.length > 0 && activeTab === 'map') {
-            students.forEach(s => {
-                if (!s.lat || !s.lng) return;
-                const position = new window.kakao.maps.LatLng(s.lat, s.lng);
-
-                if (!overlays.current[s.id]) {
-                    const content = document.createElement('div');
-                    content.className = 'relative bottom-[45px] flex flex-col items-center cursor-pointer';
-                    content.innerHTML = `
-                        <div style="background-color: ${s.color}; padding: 4px 12px; border-radius: 20px; color: white; font-size: 12px; font-weight: 800; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 2px solid white; white-space: nowrap;">${s.name}</div>
-                        <div style="background-color: ${s.color}; width: 14px; height: 14px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); margin-top: -2px;"></div>
-                    `;
-                    overlays.current[s.id] = new window.kakao.maps.CustomOverlay({
-                        position: position,
-                        content: content,
-                        map: mapInstance.current
-                    });
-                } else {
-                    overlays.current[s.id].setPosition(position);
-                    overlays.current[s.id].setMap(mapInstance.current);
-                }
-
-                if (s.history && s.history.length > 1) {
-                    if (paths.current[s.id]) {
-                        paths.current[s.id].setPath(s.history);
-                        paths.current[s.id].setMap(mapInstance.current);
-                    } else {
-                        paths.current[s.id] = new window.kakao.maps.Polyline({
-                            path: s.history,
-                            strokeWeight: 4,
-                            strokeColor: s.color,
-                            strokeOpacity: 0.8,
-                            strokeStyle: 'shortdash'
-                        });
-                        paths.current[s.id].setMap(mapInstance.current);
-                    }
-                }
-            });
-        }
-    }, [students, view, activeTab]);
-
-    // GPS 로그 가져오기 (t_gps)
-    const fetchGpsLogs = async () => {
-        if (!supabaseRef.current) return;
-        setLogsLoading(true);
-        try {
-            const { data, error } = await supabaseRef.current
-                .from('t_gps')
-                .select('*')
-                .order('update_time', { ascending: false });
+        const App = () => {
+            const [view, setView] = useState('login'); 
+            const [activeTab, setActiveTab] = useState('map'); // 'map' or 'logs'
+            const [user, setUser] = useState(null);
+            const [students, setStudents] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [gpsLogs, setGpsLogs] = useState([]);
+            const [logsLoading, setLogsLoading] = useState(false);
             
-            if (error) throw error;
-            setGpsLogs(data || []);
-        } catch (error) {
-            console.error('데이터 로드 실패:', error);
-        } finally {
-            setLogsLoading(false);
-        }
-    };
+            const [authForm, setAuthForm] = useState({ id: '', pw: '' });
+            
+            const mapInstance = useRef(null);
+            const overlays = useRef({}); 
+            const paths = useRef({});
 
-    useEffect(() => {
-        if (activeTab === 'logs') {
-            fetchGpsLogs();
-        }
-    }, [activeTab]);
+            // Lucide 아이콘 렌더링
+            useEffect(() => {
+                if (window.lucide) window.lucide.createIcons();
+            }, [view, activeTab, gpsLogs]);
 
-    const handleLogin = async (e) => {
-        e.preventDefault();
-        if (!supabaseRef.current) {
-            alert("Supabase 클라이언트가 초기화되지 않았습니다.");
-            return;
-        }
-        setLoading(true);
-        try {
-            const { data: userData, error: authError } = await supabaseRef.current
-                .from('t_user')
-                .select('*')
-                .eq('user_id', authForm.id)
-                .eq('user_pw', authForm.pw)
-                .single();
+            // 실시간 이동 시뮬레이션
+            useEffect(() => {
+                if (view === 'main' && students.length > 0 && activeTab === 'map') {
+                    const moveInterval = setInterval(() => {
+                        setStudents(prev => prev.map(s => {
+                            const deltaLat = (Math.random() - 0.5) * 0.0004;
+                            const deltaLng = (Math.random() - 0.5) * 0.0004;
+                            const newLat = s.lat + deltaLat;
+                            const newLng = s.lng + deltaLng;
+                            
+                            if (window.kakao && window.kakao.maps) {
+                                const newPos = new window.kakao.maps.LatLng(newLat, newLng);
+                                const newHistory = [...(s.history || []), newPos].slice(-100);
+                                return { ...s, lat: newLat, lng: newLng, history: newHistory };
+                            }
+                            return s;
+                        }));
+                    }, 5000);
+                    return () => clearInterval(moveInterval);
+                }
+            }, [view, students.length, activeTab]);
 
-            if (authError || !userData) {
-                alert("로그인 정보를 확인해주세요.");
-                return;
+            // 지도 초기화
+            useEffect(() => {
+                if (view === 'main' && activeTab === 'map') {
+                    const timer = setTimeout(() => {
+                        const container = document.getElementById('map');
+                        if (container && !mapInstance.current && window.kakao) {
+                            const options = {
+                                center: new window.kakao.maps.LatLng(35.2456, 128.6922),
+                                level: 4
+                            };
+                            mapInstance.current = new window.kakao.maps.Map(container, options);
+                            setStudents(prev => [...prev]); 
+                        }
+                    }, 100);
+                    return () => clearTimeout(timer);
+                }
+            }, [view, activeTab]);
+
+            // 마커 및 경로 업데이트
+            useEffect(() => {
+                if (mapInstance.current && students.length > 0 && activeTab === 'map') {
+                    students.forEach(s => {
+                        if (!s.lat || !s.lng) return;
+                        const position = new window.kakao.maps.LatLng(s.lat, s.lng);
+
+                        if (!overlays.current[s.id]) {
+                            const content = document.createElement('div');
+                            content.className = 'relative bottom-[45px] flex flex-col items-center cursor-pointer';
+                            content.innerHTML = `
+                                <div style="background-color: ${s.color}; padding: 4px 12px; border-radius: 20px; color: white; font-size: 12px; font-weight: 800; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 2px solid white; white-space: nowrap;">${s.name}</div>
+                                <div style="background-color: ${s.color}; width: 14px; height: 14px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); margin-top: -2px;"></div>
+                            `;
+                            overlays.current[s.id] = new window.kakao.maps.CustomOverlay({
+                                position: position,
+                                content: content,
+                                map: mapInstance.current
+                            });
+                        } else {
+                            overlays.current[s.id].setPosition(position);
+                            overlays.current[s.id].setMap(mapInstance.current);
+                        }
+
+                        if (s.history && s.history.length > 1) {
+                            if (paths.current[s.id]) {
+                                paths.current[s.id].setPath(s.history);
+                                paths.current[s.id].setMap(mapInstance.current);
+                            } else {
+                                paths.current[s.id] = new window.kakao.maps.Polyline({
+                                    path: s.history,
+                                    strokeWeight: 4,
+                                    strokeColor: s.color,
+                                    strokeOpacity: 0.8,
+                                    strokeStyle: 'shortdash'
+                                });
+                                paths.current[s.id].setMap(mapInstance.current);
+                            }
+                        }
+                    });
+                }
+            }, [students, view, activeTab]);
+
+            // GPS 로그 가져오기
+            const fetchGpsLogs = async () => {
+                setLogsLoading(true);
+                try {
+                    const { data, error } = await supabase
+                        .from('t_gps')
+                        .select('*')
+                        .order('update_time', { ascending: false });
+                    if (error) throw error;
+                    setGpsLogs(data || []);
+                } catch (err) {
+                    console.error("로그 로드 실패:", err);
+                } finally {
+                    setLogsLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                if (activeTab === 'logs') fetchGpsLogs();
+            }, [activeTab]);
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                try {
+                    const { data, error } = await supabase
+                        .from('t_user')
+                        .select('*')
+                        .eq('user_id', authForm.id)
+                        .eq('user_pw', authForm.pw)
+                        .single();
+
+                    if (error || !data) {
+                        alert("로그인 정보를 확인해주세요.");
+                        return;
+                    }
+
+                    const mockData = [
+                        { stu_no: 'S001', stu_name: '김민준', lat: 35.2456, lng: 128.6922, color: '#EF4444' },
+                        { stu_no: 'S002', stu_name: '이서윤', lat: 35.2465, lng: 128.6910, color: '#3B82F6' },
+                        { stu_no: 'S003', stu_name: '박지호', lat: 35.2448, lng: 128.6935, color: '#10B981' }
+                    ];
+                    setStudents(mockData.map(s => ({
+                        ...s, id: s.stu_no, name: s.stu_name, history: [new window.kakao.maps.LatLng(s.lat, s.lng)]
+                    })));
+                    setUser(data);
+                    setView('main');
+                } catch (err) {
+                    alert("오류가 발생했습니다.");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const focusStudent = (s) => {
+                if (mapInstance.current && s.lat && activeTab === 'map') {
+                    mapInstance.current.panTo(new window.kakao.maps.LatLng(s.lat, s.lng));
+                }
+            };
+
+            if (view === 'login') {
+                return (
+                    <div className="h-screen flex items-center justify-center bg-slate-100 px-6">
+                        <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-[420px] text-center border border-slate-200">
+                            <div className="inline-block p-4 bg-blue-50 rounded-3xl mb-4 text-blue-600">
+                                <i data-lucide="eye" className="w-10 h-10"></i>
+                            </div>
+                            <h1 className="text-3xl font-black text-slate-900 tracking-tight">아이-링크 (Eye-Link)</h1>
+                            <p className="text-slate-500 font-medium text-sm mt-1 mb-10">특수아동 안전 관리 시스템</p>
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                <div className="relative text-left">
+                                    <i data-lucide="user" className="absolute left-5 top-[18px] text-slate-400 w-5 h-5"></i>
+                                    <input className="w-full pl-14 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-semibold focus:border-blue-500" placeholder="아이디" value={authForm.id} onChange={e => setAuthForm({...authForm, id: e.target.value})} required />
+                                </div>
+                                <div className="relative text-left">
+                                    <i data-lucide="lock" className="absolute left-5 top-[18px] text-slate-400 w-5 h-5"></i>
+                                    <input type="password" className="w-full pl-14 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-semibold focus:border-blue-500" placeholder="비밀번호" value={authForm.pw} onChange={e => setAuthForm({...authForm, pw: e.target.value})} required />
+                                </div>
+                                <button className="w-full bg-blue-600 text-white font-bold py-5 rounded-2xl shadow-lg hover:bg-blue-700 active:scale-[0.98] transition-all text-lg flex justify-center items-center">
+                                    {loading ? "확인 중..." : "로그인"}
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                );
             }
 
-            const mockData = [
-                { stu_no: 'S001', stu_name: '김민준', lat: 35.2456, lng: 128.6922 },
-                { stu_no: 'S002', stu_name: '이서윤', lat: 35.2465, lng: 128.6910 },
-                { stu_no: 'S003', stu_name: '박지호', lat: 35.2448, lng: 128.6935 }
-            ];
-            const colors = ['#EF4444', '#3B82F6', '#10B981'];
-            setStudents(mockData.map((s, idx) => ({
-                id: s.stu_no,
-                stu_no: s.stu_no,
-                name: s.stu_name,
-                color: colors[idx % colors.length],
-                lat: s.lat,
-                lng: s.lng,
-                history: [new window.kakao.maps.LatLng(s.lat, s.lng)]
-            })));
-            
-            setUser(userData);
-            setView('main');
-        } catch (err) {
-            alert("시스템 오류가 발생했습니다.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const focusStudent = (s) => {
-        if (mapInstance.current && s.lat && activeTab === 'map') {
-            const pos = new window.kakao.maps.LatLng(s.lat, s.lng);
-            mapInstance.current.panTo(pos);
-        }
-    };
-
-    if (view === 'login') {
-        return (
-            <div className="h-screen flex items-center justify-center bg-slate-100 px-6 font-sans">
-                <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-[420px] border border-slate-200 text-center">
-                    <div className="inline-block p-4 bg-blue-50 rounded-3xl mb-4 text-blue-600">
-                        <Eye size={40} />
-                    </div>
-                    <h1 className="text-3xl font-black text-slate-900 tracking-tight">아이-링크 (Eye-Link)</h1>
-                    <p className="text-slate-500 font-medium text-sm mt-1 mb-10">특수아동 안전 관리 시스템</p>
-                    <form onSubmit={handleLogin} className="space-y-4">
-                        <div className="relative">
-                            <User size={20} className="absolute left-5 top-[18px] text-slate-400" />
-                            <input className="w-full pl-14 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-semibold focus:border-blue-500" placeholder="관리자 아이디" value={authForm.id} onChange={e => setAuthForm({...authForm, id: e.target.value})} required />
-                        </div>
-                        <div className="relative">
-                            <Lock size={20} className="absolute left-5 top-[18px] text-slate-400" />
-                            <input type="password" className="w-full pl-14 pr-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-semibold focus:border-blue-500" placeholder="비밀번호" value={authForm.pw} onChange={e => setAuthForm({...authForm, pw: e.target.value})} required />
-                        </div>
-                        <button disabled={loading} className="w-full bg-blue-600 text-white font-bold py-5 rounded-2xl shadow-lg hover:bg-blue-700 active:scale-[0.98] transition-all text-lg flex justify-center items-center">
-                            {loading ? "확인 중..." : "로그인"}
-                        </button>
-                    </form>
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="h-screen flex flex-col bg-slate-50 font-sans">
-            <header className="h-20 bg-white border-b flex items-center justify-between px-8 z-[2000] shadow-sm">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-600 rounded-xl text-white">
-                        <Eye size={24} />
-                    </div>
-                    <div>
-                        <h2 className="font-black text-xl text-slate-900 leading-tight">Eye-Link</h2>
-                        <p className="text-blue-600 text-[10px] font-bold tracking-widest uppercase">Safety Network</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-6">
-                    <div className="text-right hidden sm:block">
-                        <p className="text-[10px] text-slate-400 font-bold">{user?.user_school}</p>
-                        <p className="text-sm font-black text-slate-700">{user?.user_name} 관리자</p>
-                    </div>
-                    <button onClick={() => window.location.reload()} className="p-3 bg-slate-100 text-slate-500 rounded-xl hover:bg-red-50 hover:text-red-500 transition-all">
-                        <LogOut size={20} />
-                    </button>
-                </div>
-            </header>
-            
-            <div className="flex-1 flex overflow-hidden p-4 gap-4">
-                <aside className="w-80 bg-white rounded-[1.5rem] border border-slate-200 flex flex-col z-[1500] shadow-sm overflow-hidden">
-                    <div className="p-2 flex gap-1 bg-slate-50 border-b border-slate-200">
-                        <button 
-                            onClick={() => setActiveTab('map')}
-                            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'map' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                        >
-                            <MapIcon size={16} /> 실시간 지도
-                        </button>
-                        <button 
-                            onClick={() => setActiveTab('logs')}
-                            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'logs' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                        >
-                            <Database size={16} /> GPS 로그
-                        </button>
-                    </div>
-
-                    <div className="p-4 border-b flex justify-between items-center bg-white">
-                        <h3 className="font-black text-slate-800 text-xs flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                            학생 목록 모니터링
-                        </h3>
-                        <span className="text-[10px] bg-slate-100 px-2 py-1 rounded-md font-bold text-slate-500">{students.length}명</span>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scroll">
-                        {students.map(s => (
-                            <div key={s.id} onClick={() => focusStudent(s)} className={`p-4 bg-white border border-slate-100 rounded-2xl flex items-center gap-4 hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group ${activeTab === 'logs' ? 'opacity-50 grayscale' : ''}`}>
-                                <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-lg" style={{backgroundColor: s.color}}>
-                                    {s.name.substring(0,1)}
-                                </div>
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-black text-slate-800 group-hover:text-blue-600 transition-colors">{s.name}</span>
-                                    <span className="text-[10px] text-slate-400 font-medium">단말기: {s.id}</span>
-                                </div>
-                                <div className="ml-auto">
-                                    <ChevronRight size={16} className="text-slate-300" />
-                                </div>
+            return (
+                <div className="h-screen flex flex-col bg-slate-50">
+                    <header className="h-20 bg-white border-b flex items-center justify-between px-8 z-[2000] shadow-sm">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-blue-600 rounded-xl text-white">
+                                <i data-lucide="eye" className="w-6 h-6"></i>
                             </div>
-                        ))}
-                    </div>
-                </aside>
-
-                <main className="flex-1 relative bg-white rounded-[1.5rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-                    {activeTab === 'map' ? (
-                        <>
-                            <div id="map" className="flex-1"></div>
-                            <div className="absolute top-6 right-6 z-[1000] flex flex-col gap-2">
-                                <div className="bg-white/90 backdrop-blur-md p-1.5 rounded-2xl shadow-xl border border-white/20 flex flex-col">
-                                    <button className="p-3 hover:bg-slate-100 rounded-xl transition-all" onClick={() => mapInstance.current.zoomIn()}><Plus size={20} /></button>
-                                    <div className="h-[1px] bg-slate-100 mx-2"></div>
-                                    <button className="p-3 hover:bg-slate-100 rounded-xl transition-all" onClick={() => mapInstance.current.zoomOut()}><Minus size={20} /></button>
-                                </div>
-                                <button className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-white/20 hover:bg-blue-50 group transition-all" onClick={() => {
-                                    if(students[0]) focusStudent(students[0]);
-                                }}>
-                                    <Locate size={20} className="text-slate-600 group-hover:text-blue-600" />
+                            <div>
+                                <h2 className="font-black text-xl text-slate-900 leading-tight">Eye-Link</h2>
+                                <p className="text-blue-600 text-[10px] font-bold tracking-widest uppercase">Safety Network</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-6">
+                            <div className="text-right hidden sm:block">
+                                <p className="text-[10px] text-slate-400 font-bold">{user?.user_school}</p>
+                                <p className="text-sm font-black text-slate-700">{user?.user_name} 관리자</p>
+                            </div>
+                            <button onClick={() => window.location.reload()} className="p-3 bg-slate-100 text-slate-500 rounded-xl hover:bg-red-50 hover:text-red-500 transition-all">
+                                <i data-lucide="log-out" className="w-5 h-5"></i>
+                            </button>
+                        </div>
+                    </header>
+                    
+                    <div className="flex-1 flex overflow-hidden p-4 gap-4">
+                        <aside className="w-80 bg-white rounded-[1.5rem] border border-slate-200 flex flex-col z-[1500] shadow-sm overflow-hidden">
+                            <div className="p-2 flex gap-1 bg-slate-50 border-b">
+                                <button onClick={() => setActiveTab('map')} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'map' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
+                                    <i data-lucide="map" className="w-4 h-4"></i> 실시간 지도
                                 </button>
-                            </div>
-                        </>
-                    ) : (
-                        <div className="flex-1 flex flex-col bg-white overflow-hidden">
-                            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-slate-50/50">
-                                <div className="flex items-center gap-3">
-                                    <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
-                                        <Database size={20} />
-                                    </div>
-                                    <div>
-                                        <h2 className="text-lg font-black text-slate-800 tracking-tight">GPS 원시 데이터 로그</h2>
-                                        <p className="text-xs text-slate-400 font-medium">데이터베이스: t_gps</p>
-                                    </div>
-                                </div>
-                                <button 
-                                    onClick={fetchGpsLogs}
-                                    disabled={logsLoading}
-                                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-blue-200 transition-all active:scale-95 disabled:opacity-50 font-bold text-sm"
-                                >
-                                    <RefreshCw size={16} className={logsLoading ? 'animate-spin' : ''} />
-                                    데이터 새로고침
+                                <button onClick={() => setActiveTab('logs')} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'logs' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
+                                    <i data-lucide="database" className="w-4 h-4"></i> GPS 로그
                                 </button>
                             </div>
 
-                            <div className="flex-1 overflow-auto p-6">
-                                <table className="w-full text-left border-separate border-spacing-0">
-                                    <thead className="sticky top-0 bg-white z-10 text-slate-400 text-[11px] font-bold uppercase tracking-wider">
-                                        <tr>
-                                            <th className="px-6 py-4 border-b border-slate-100 text-center">ID</th>
-                                            <th className="px-6 py-4 border-b border-slate-100">학번 (stu_no)</th>
-                                            <th className="px-6 py-4 border-b border-slate-100 text-blue-600">위도 (Latitude)</th>
-                                            <th className="px-6 py-4 border-b border-slate-100 text-blue-600">경도 (Longitude)</th>
-                                            <th className="px-6 py-4 border-b border-slate-100 text-orange-500">위성수</th>
-                                            <th className="px-6 py-4 border-b border-slate-100">고도 (m)</th>
-                                            <th className="px-6 py-4 border-b border-slate-100 text-slate-600">갱신시간</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-50 text-sm">
-                                        {logsLoading && gpsLogs.length === 0 ? (
-                                            <tr>
-                                                <td colSpan="7" className="px-6 py-20 text-center text-slate-400 font-medium">데이터를 불러오는 중...</td>
-                                            </tr>
-                                        ) : gpsLogs.map((log) => (
-                                            <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
-                                                <td className="px-6 py-4 text-slate-400 text-xs text-center">{log.id}</td>
-                                                <td className="px-6 py-4 font-black text-slate-800">{log.stu_no}</td>
-                                                <td className="px-6 py-4 font-mono text-blue-600">{Number(log.latitude).toFixed(6)}</td>
-                                                <td className="px-6 py-4 font-mono text-blue-600">{Number(log.longitude).toFixed(6)}</td>
-                                                <td className="px-6 py-4">
-                                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-orange-50 text-orange-600 text-[10px] font-black">
-                                                        <Satellite size={10} /> {log.satellites}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-slate-600 font-medium">{log.altitude}m</td>
-                                                <td className="px-6 py-4 text-slate-400 text-xs">
-                                                    <div className="flex items-center gap-1">
-                                                        <Clock size={12} /> {new Date(log.update_time).toLocaleString('ko-KR')}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                            <div className="p-4 border-b bg-white flex justify-between items-center">
+                                <h3 className="font-black text-slate-800 text-xs flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    학생 모니터링
+                                </h3>
+                                <span className="text-[10px] bg-slate-100 px-2 py-1 rounded-md font-bold text-slate-500">{students.length}명</span>
                             </div>
-                            <div className="px-8 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                                <span className="text-[11px] text-slate-400 font-bold uppercase tracking-widest">Real-time GPS Logs</span>
-                                <span className="text-sm font-black text-slate-600">총 {gpsLogs.length}건</span>
-                            </div>
-                        </div>
-                    )}
-                </main>
-            </div>
-        </div>
-    );
-};
 
-export default App;
+                            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scroll">
+                                {students.map(s => (
+                                    <div key={s.id} onClick={() => focusStudent(s)} className={`p-4 bg-white border border-slate-100 rounded-2xl flex items-center gap-4 hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group ${activeTab === 'logs' ? 'opacity-50' : ''}`}>
+                                        <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-lg" style={{backgroundColor: s.color}}>
+                                            {s.name.substring(0,1)}
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-black text-slate-800 group-hover:text-blue-600 transition-colors">{s.name}</span>
+                                            <span className="text-[10px] text-slate-400 font-medium">{s.id}</span>
+                                        </div>
+                                        <i data-lucide="chevron-right" className="ml-auto w-4 h-4 text-slate-300"></i>
+                                    </div>
+                                ))}
+                            </div>
+                        </aside>
+
+                        <main className="flex-1 relative bg-white rounded-[1.5rem] shadow-sm border border-slate-200 overflow-hidden">
+                            {activeTab === 'map' ? (
+                                <div className="h-full relative">
+                                    <div id="map" className="w-full h-full"></div>
+                                    <div className="absolute top-6 right-6 z-[1000] flex flex-col gap-2">
+                                        <div className="bg-white/90 backdrop-blur-md p-1.5 rounded-2xl shadow-xl border border-white/20 flex flex-col">
+                                            <button className="p-3 hover:bg-slate-100 rounded-xl transition-all" onClick={() => mapInstance.current.zoomIn()}><i data-lucide="plus" className="w-5 h-5"></i></button>
+                                            <div className="h-[1px] bg-slate-100 mx-2"></div>
+                                            <button className="p-3 hover:bg-slate-100 rounded-xl transition-all" onClick={() => mapInstance.current.zoomOut()}><i data-lucide="minus" className="w-5 h-5"></i></button>
+                                        </div>
+                                    </div>
+                                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900/80 backdrop-blur-lg px-6 py-3 rounded-2xl border border-white/10 shadow-2xl">
+                                        <p className="text-white text-xs font-bold flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                            실시간 위치 수신 중 (5초 간격)
+                                        </p>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="h-full flex flex-col">
+                                    <div className="p-6 border-b flex justify-between items-center bg-slate-50/50">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                                                <i data-lucide="database" className="w-5 h-5"></i>
+                                            </div>
+                                            <div>
+                                                <h2 className="text-lg font-black text-slate-800 tracking-tight">GPS 원시 데이터 로그</h2>
+                                                <p className="text-xs text-slate-400 font-medium">Postgres: t_gps</p>
+                                            </div>
+                                        </div>
+                                        <button onClick={fetchGpsLogs} disabled={logsLoading} className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl shadow-lg hover:bg-blue-700 transition-all font-bold text-sm">
+                                            <i data-lucide="refresh-cw" className={`w-4 h-4 ${logsLoading ? 'animate-spin' : ''}`}></i>
+                                            새로고침
+                                        </button>
+                                    </div>
+                                    <div className="flex-1 overflow-auto p-6 custom-scroll">
+                                        <table className="w-full text-left border-separate border-spacing-0">
+                                            <thead className="sticky top-0 bg-white z-10 text-slate-400 text-[11px] font-bold uppercase tracking-wider">
+                                                <tr>
+                                                    <th className="px-6 py-4 border-b border-slate-100">ID</th>
+                                                    <th className="px-6 py-4 border-b border-slate-100">학번 (stu_no)</th>
+                                                    <th className="px-6 py-4 border-b border-slate-100 text-blue-600">위도</th>
+                                                    <th className="px-6 py-4 border-b border-slate-100 text-blue-600">경도</th>
+                                                    <th className="px-6 py-4 border-b border-slate-100 text-orange-500">위성</th>
+                                                    <th className="px-6 py-4 border-b border-slate-100 text-slate-600">갱신시간</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-50 text-sm">
+                                                {gpsLogs.map((log) => (
+                                                    <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                                                        <td className="px-6 py-4 text-slate-400 text-xs">{log.id}</td>
+                                                        <td className="px-6 py-4 font-black text-slate-800">{log.stu_no}</td>
+                                                        <td className="px-6 py-4 font-mono text-blue-600">{Number(log.latitude).toFixed(6)}</td>
+                                                        <td className="px-6 py-4 font-mono text-blue-600">{Number(log.longitude).toFixed(6)}</td>
+                                                        <td className="px-6 py-4"><span className="px-2 py-1 bg-orange-50 text-orange-600 rounded-full text-[10px] font-black">{log.satellites}</span></td>
+                                                        <td className="px-6 py-4 text-slate-400 text-xs">{new Date(log.update_time).toLocaleString('ko-KR')}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </main>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
