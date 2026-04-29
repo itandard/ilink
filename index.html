@@ -313,27 +313,29 @@
                                 </div>
                             ) : (
                                 <div className="h-full flex flex-col">
-                                    <div className="p-6 border-b flex justify-between items-center bg-white">
+                                    {/* 상단 헤더: 제목 및 새로고침 버튼 */}
+                                    <div className="p-6 border-b flex justify-between items-center bg-white shadow-sm z-10">
                                         <div className="flex items-center gap-4">
                                             <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
-                                                <i data-lucide="database" className="w-6 h-6"></i>
+                                                <i data-lucide="history" className="w-6 h-6"></i>
                                             </div>
                                             <div>
-                                                <h2 className="text-xl font-black text-slate-800 tracking-tight">GPS 로그 히스토리</h2>
-                                                <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
-                                                    System Records: t_gps
+                                                <h2 className="text-xl font-black text-slate-800 tracking-tight leading-none">GPS 로그 히스토리</h2>
+                                                <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1 mt-1.5">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                                    System Records Online
                                                 </p>
                                             </div>
                                         </div>
                                         
+                                        {/* 강조된 새로고침 버튼 */}
                                         <button 
                                             onClick={fetchGpsLogs} 
                                             disabled={logsLoading} 
-                                            className="group flex items-center gap-2.5 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl shadow-lg shadow-indigo-100 transition-all active:scale-95 disabled:opacity-70"
+                                            className="group flex items-center gap-3 bg-indigo-600 hover:bg-indigo-700 text-white px-7 py-3.5 rounded-2xl shadow-xl shadow-indigo-100 transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
                                         >
-                                            <i data-lucide="refresh-cw" className={`w-4 h-4 ${isRefreshing ? 'animate-refresh' : 'group-hover:rotate-180 transition-transform duration-500'}`}></i>
-                                            <span className="font-bold text-sm">최신 데이터 가져오기</span>
+                                            <i data-lucide="refresh-cw" className={`w-5 h-5 ${isRefreshing ? 'animate-refresh' : 'group-hover:rotate-180 transition-transform duration-500'}`}></i>
+                                            <span className="font-extrabold text-sm tracking-tight">{isRefreshing ? '데이터 갱신 중...' : '최신 데이터 조회'}</span>
                                         </button>
                                     </div>
                                     
@@ -346,7 +348,7 @@
                                                         <th className="px-6 py-5 border-b border-slate-100 text-[11px] font-black text-slate-400 uppercase tracking-widest">학번 (stu_no)</th>
                                                         <th className="px-6 py-5 border-b border-slate-100 text-[11px] font-black text-indigo-500 uppercase tracking-widest">위도 (LAT)</th>
                                                         <th className="px-6 py-5 border-b border-slate-100 text-[11px] font-black text-indigo-500 uppercase tracking-widest">경도 (LNG)</th>
-                                                        <th className="px-6 py-5 border-b border-slate-100 text-[11px] font-black text-orange-500 uppercase tracking-widest">위성 수</th>
+                                                        <th className="px-6 py-5 border-b border-slate-100 text-[11px] font-black text-orange-500 uppercase tracking-widest text-center">위성 수</th>
                                                         <th className="px-6 py-5 border-b border-slate-100 text-[11px] font-black text-slate-600 uppercase tracking-widest">업데이트 시간</th>
                                                     </tr>
                                                 </thead>
@@ -357,7 +359,7 @@
                                                             <td className="px-6 py-4 font-black text-slate-800">{log.stu_no}</td>
                                                             <td className="px-6 py-4 font-mono text-indigo-600 font-medium">{Number(log.latitude).toFixed(6)}</td>
                                                             <td className="px-6 py-4 font-mono text-indigo-600 font-medium">{Number(log.longitude).toFixed(6)}</td>
-                                                            <td className="px-6 py-4">
+                                                            <td className="px-6 py-4 text-center">
                                                                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 text-orange-600 rounded-xl text-[10px] font-black border border-orange-100">
                                                                     <i data-lucide="satellite" className="w-3 h-3"></i>
                                                                     {log.satellites}
@@ -365,7 +367,7 @@
                                                             </td>
                                                             <td className="px-6 py-4 text-slate-500 font-medium text-xs">
                                                                 <div className="flex items-center gap-2">
-                                                                    <i data-lucide="clock" className="w-3.5 h-3.5 text-slate-300"></i>
+                                                                    <i data-lucide="calendar" className="w-3.5 h-3.5 text-slate-300"></i>
                                                                     {new Date(log.update_time).toLocaleString('ko-KR', {
                                                                         year: 'numeric', month: '2-digit', day: '2-digit',
                                                                         hour: '2-digit', minute: '2-digit', second: '2-digit'
@@ -375,8 +377,14 @@
                                                         </tr>
                                                     )) : (
                                                         <tr>
-                                                            <td colSpan="6" className="px-6 py-20 text-center text-slate-400 font-medium italic">
-                                                                데이터가 존재하지 않습니다.
+                                                            <td colSpan="6" className="px-6 py-24 text-center">
+                                                                <div className="flex flex-col items-center gap-3">
+                                                                    <div className="p-4 bg-slate-50 rounded-full text-slate-200">
+                                                                        <i data-lucide="inbox" className="w-10 h-10"></i>
+                                                                    </div>
+                                                                    <p className="text-slate-400 font-bold">조회된 GPS 기록이 없습니다.</p>
+                                                                    <button onClick={fetchGpsLogs} className="text-indigo-600 text-sm font-black hover:underline underline-offset-4 mt-2 italic">조회 시도하기</button>
+                                                                </div>
                                                             </td>
                                                         </tr>
                                                     )}
@@ -384,13 +392,14 @@
                                             </table>
                                         </div>
                                     </div>
-                                    <div className="px-8 py-4 bg-white border-t border-slate-100 flex justify-between items-center">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
-                                            <span className="text-xs font-black text-slate-400 uppercase tracking-tighter">Status: Database Connected</span>
+                                    
+                                    <div className="px-8 py-5 bg-white border-t border-slate-100 flex justify-between items-center shadow-[0_-4px_12px_rgba(0,0,0,0.02)]">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
+                                            <span className="text-xs font-black text-slate-500 uppercase tracking-tighter">Status: Live Database Synced</span>
                                         </div>
-                                        <span className="text-sm font-black text-slate-700 bg-slate-100 px-4 py-1.5 rounded-full">
-                                            총 <span className="text-indigo-600">{gpsLogs.length}</span>개의 기록
+                                        <span className="text-sm font-black text-slate-700 bg-slate-100 px-5 py-2 rounded-full border border-slate-200">
+                                            총 <span className="text-indigo-600 font-black px-1">{gpsLogs.length}</span>개의 기록 데이터
                                         </span>
                                     </div>
                                 </div>
